@@ -4,5 +4,5 @@
 	branch = master
 [submodule "src/aio-base-frontend"]
 	path = src/aio-base-frontend
-	url = https://github.com/AIO-2030/aio-base-frontend.git
-	branch = main
+	url = git@github.com:AIO-2030/aio-base-frontend.git
+	branch = master
