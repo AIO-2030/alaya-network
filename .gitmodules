@@ -1,0 +1,4 @@
+[submodule "src/aio-base-backend"]
+	path = src/aio-base-backend
+	url = https://github.com/AIO-2030/aio-base-backend.git
+	branch = master
