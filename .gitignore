@@ -23,3 +23,15 @@ dist/
 
 # environment variables
 .env
+
+# Independent git repositories (should not be tracked by main repo)
+aio-pod/
+src/alaya-chat-nexus-frontend/
+univoice-whisper-chat/
+
+# Backup directories
+src/aio-base-backend-backup/
+src/aio-base-frontend-backup/
+
+# Other build artifacts
+package-lock.json
