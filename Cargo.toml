@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "src/aio-base-backend"
+]
+resolver = "2"
