@@ -2,6 +2,14 @@
 
 A comprehensive decentralized AI ecosystem built on Internet Computer Protocol (ICP) that fundamentally reconstructs the AI interaction paradigm through blockchain technology and agent collaboration networks.
 
+## V0.1 Demo Deployed canisters.
+URLs:
+  Frontend canister via browser
+    aio-base-frontend: https://scswk-paaaa-aaaau-abyaq-cai.icp0.io/
+  Backend canister via Candid interface:
+    aio-base-backend: https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io/?id=sftq6-cyaaa-aaaau-abyaa-cai
+
+
 ## Table of Contents
 
 - [Overview](#overview)
