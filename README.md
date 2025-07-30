@@ -545,6 +545,6 @@ For questions, support, or collaboration opportunities:
 ---
 
 **Version**: 1.0.0  
-**Last Updated**: 2024  
+**Last Updated**: 2025  
 **Platform**: Internet Computer Protocol (ICP)  
 **License**: MIT License 
