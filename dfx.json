@@ -35,10 +35,10 @@
         "aio-base-backend"
       ],
       "source": [
-        "src/alaya-ai-chat-nexus/dist"
+        "src/alaya-chat-nexus-frontend/dist"
       ],
       "type": "assets",
-      "workspace": "src/alaya-ai-chat-nexus"
+      "workspace": "src/alaya-chat-nexus-frontend"
     }
   },
   "defaults": {

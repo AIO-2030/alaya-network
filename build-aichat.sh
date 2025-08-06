@@ -2,9 +2,7 @@
 set -e
 dfx stop
 dfx start --background --clean
-
 dfx deploy aio-base-frontend
-
 
 # add recharge principal
 echo "Add Recharge Principal"

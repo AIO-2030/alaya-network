@@ -120,7 +120,14 @@ alaya-network/
 │   │   │   ├── config/                  # Prompt configurations
 │   │   │   └── runtime/                 # AIO Protocol runtime
 │   │   └── public/                      # Static assets
-│   └── alaya-chat-nexus-*/    # Chat Components
+│   ├── alaya-chat-nexus-frontend/  # Chat Nexus Frontend (TypeScript + React)
+│   │   ├── src/
+│   │   │   ├── components/          # UI components
+│   │   │   ├── pages/               # Application pages
+│   │   │   ├── services/            # API services
+│   │   │   └── utils/               # Utility functions
+│   │   └── public/                  # Static assets
+│   └── alaya-chat-nexus-*/          # Other Chat Components
 ├── univoice-whisper-chat/     # Voice Chat Components
 ├── target/                    # Rust Build Output
 ├── certificates/              # Certificate Files

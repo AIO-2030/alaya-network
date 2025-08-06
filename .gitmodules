@@ -6,3 +6,7 @@
 	path = src/aio-base-frontend
 	url = git@github.com:AIO-2030/aio-base-frontend.git
 	branch = master
+[submodule "src/alaya-chat-nexus-frontend"]
+	path = src/alaya-chat-nexus-frontend
+	url = git@github.com:AIO-2030/alaya-ai-chat-nexus.git
+	branch = main
