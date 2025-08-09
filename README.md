@@ -26,6 +26,65 @@ URLs:
 - [Contributing](#contributing)
 - [License](#license)
 
+## What's New (Recent Updates)
+
+The following improvements were implemented across the Chat Nexus frontend and shared components:
+
+- Navigation and Header
+  - Bottom navigation: renamed `Profile` to `AI`, changed the icon to Sparkles, and made it point to the home (`/`).
+  - Introduced a reusable `AppHeader` that unifies avatar click-to-profile, login/logout, and layout across pages.
+  - Avatar click (mobile and desktop) navigates to `/profile` consistently.
+
+- Authentication (Google OAuth)
+  - Added a dedicated hook `useGoogleAuth` that encapsulates all Google OAuth logic with safe fallbacks.
+  - Added `GoogleAuthProvider` which lazy-loads Google API, initializes auth, and allows the app to continue with a mock fallback if misconfigured or blocked by CSP.
+  - Updated `useAuth` to integrate Google login/logout, status validation, and session sync.
+  - Switched env keys to Vite conventions: `VITE_GOOGLE_CLIENT_ID`, `VITE_API_URL`, `VITE_ENVIRONMENT`.
+  - Updated CSP (`.ic-assets.json5`) to allow Google APIs/images: `apis.google.com`, `accounts.google.com`, `www.googleapis.com`, `lh3.googleusercontent.com`.
+
+- Layout and Content Visibility
+  - Fixed content being obscured by the bottom nav on mobile by applying responsive `calc(100vh - header - nav)` height rules.
+  - Adjusted `ChatBox` and page containers (`Index.tsx`, etc.) to use `max-h`/`min-h-0` and reduced bottom margins on mobile.
+
+- Wallet Section Scope
+  - Removed the inline "My Wallet" cards from `Index.tsx`, `Contracts.tsx`, `MyDevices.tsx`, and `Shop.tsx`.
+  - Kept the wallet section exclusively on `Profile.tsx` per product requirements.
+
+- Device Initialization Flow (Add Device)
+  - Improved responsive layout and scroll handling so the main area is not covered by the bottom nav.
+  - Added WiFi password dialog (show/hide, Enter-to-submit) before proceeding to Bluetooth scan.
+  - Implemented `realDeviceService` which attempts real WiFi/Bluetooth discovery via web APIs with graceful fallbacks:
+    - WiFi: tries experimental Web WiFi / Network Information APIs; falls back to realistic mock data.
+    - Bluetooth: uses Web Bluetooth API for selection and GATT connection; falls back to realistic mock data.
+  - Switched `deviceInitManager` from `deviceService` (mock) to `realDeviceService` for scanning, connecting, configuring, and submitting device records.
+
+> Note: Real WiFi enumeration is restricted in most browsers. The implementation attempts all available web APIs and falls back to simulated data when unsupported. Web Bluetooth requires a supported browser (e.g., Chrome) and HTTPS context.
+
+### Environment Configuration (Vite)
+
+- Create `.env` and set at least:
+
+```
+VITE_GOOGLE_CLIENT_ID=your_google_client_id
+VITE_API_URL=http://localhost:3000
+VITE_ENVIRONMENT=development
+```
+
+### CSP for ICP Hosting
+
+If you host on ICP with `.ic-assets.json5`, ensure the following directives include Google endpoints:
+
+- `script-src`: `https://apis.google.com https://accounts.google.com`
+- `connect-src`: `https://accounts.google.com https://www.googleapis.com`
+- `img-src`: `https://lh3.googleusercontent.com`
+
+### Usage Tips
+
+- Avatar in the header navigates to `/profile`.
+- Bottom nav `AI` goes to the home chat.
+- Add Device flow: WiFi scan → password dialog → Bluetooth scan → connection and WiFi provisioning.
+
+
 ## Overview
 
 **AIO-2030 (Super AI Decentralized Network)** introduces the *De-Super Agentic AI Network*, featuring:
@@ -79,6 +138,177 @@ User Request → Intent Analysis → Task Decomposition → Agent Selection → 
                      ↓                    ↓                  ↓             ↓              ↓
             Trace Logging → Work Ledger → Token Economy → Mining Rewards → Audit Trail
 ```
+
+### Component Interaction Sequence
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant UI as Web UI (AppHeader/Pages)
+  participant Auth as useAuth / GoogleAuthProvider
+  participant GAPI as Google APIs
+  participant Dev as AddDevice Page
+  participant DIM as deviceInitManager
+  participant RDS as realDeviceService
+  participant WebBT as Web Bluetooth / Network APIs
+  participant Can as ICP Canisters (deviceApi)
+
+  U->>UI: Open app / click Login
+  UI->>Auth: Initialize auth
+  Auth-->>UI: Session ready (real or mock)
+  U->>UI: Click "Sign in with Google"
+  UI->>Auth: loginWithGoogle()
+  Auth->>GAPI: Load SDK & signIn
+  GAPI-->>Auth: ID token / profile
+  Auth-->>UI: User session persisted
+
+  U->>Dev: Start Initialization
+  Dev->>DIM: startDeviceInit()
+  DIM->>RDS: scanWiFiNetworks()
+  RDS->>WebBT: Try native WiFi APIs
+  WebBT-->>RDS: Networks or none
+  RDS-->>DIM: WiFi list
+  Dev-->>U: Show WiFi options
+  U->>Dev: Select WiFi + password
+  Dev->>DIM: selectWiFi()
+  DIM->>RDS: scanBluetoothDevices()
+  RDS->>WebBT: Request device selection
+  WebBT-->>RDS: Device info
+  RDS-->>DIM: Bluetooth devices
+  U->>Dev: Select device
+  Dev->>DIM: selectBluetoothDevice()
+  DIM->>RDS: connectBluetooth()
+  RDS->>WebBT: GATT connect
+  WebBT-->>RDS: Connected
+  DIM->>RDS: configureWiFiViaBluetooth()
+  RDS-->>DIM: WiFi configured
+  DIM->>Can: submitDeviceRecord()
+  Can-->>DIM: Ok
+  DIM-->>Dev: Step = SUCCESS
+```
+
+### Dapp Architecture (Detailed)
+
+This dapp is composed of three cooperating planes. Each plane is independently testable, deployable, and replaceable.
+
+1) Interaction Plane (Web Frontend)
+- Tech: React + TypeScript (Vite), shadcn/ui, Radix, Tailwind
+- State: React Context + TanStack Query (server/cache), localStorage for sessions
+- Responsibilities:
+  - Routing, layout, and client-side rendering
+  - Authentication (Wallet / Google OAuth)
+  - AI chat UX, agent orchestration UI, device initialization UX
+  - Calls dapp APIs (ICP canisters, AIO Pod, external providers)
+
+2) Coordination & Ledger Plane (ICP Canisters)
+- Tech: Rust (canister smart contracts)
+- Responsibilities:
+  - Token economy (credits/AIO), staking, grants, ledger updates
+  - Agent/MCP metadata, capability registry, work-ledger, traces
+  - Contract-based agent registration and governance
+  - Candid interfaces provide stable API contracts
+
+3) Execution Plane (AIO Pod / External Services)
+- Tech: Python VM, isolated subprocesses, REST API
+- Responsibilities:
+  - MCP execution, long-running tasks, tool/agent integration
+  - File handling and permissions, streaming outputs (SSE/stdio)
+  - Bridges to third‑party AI services where appropriate
+
+Cross-Cutting Concerns
+- Observability: Trace IDs across UI → Canisters → AIO Pod
+- Security: CSP, strict origin policies, permission prompts (Bluetooth), defensive parsing
+- Compatibility: Graceful feature detection (e.g., Web Bluetooth), mock fallbacks in non-supported browsers
+
+Runtime View
+- Browser loads web app → `AppHeader` and bottom nav render → routes load feature modules
+- Auth initializes early (GoogleAuthProvider), wallet available via Plug integration
+- Feature flows (e.g., Add Device) call `deviceInitManager`, which delegates to `realDeviceService` (web APIs) or safely falls back
+
+Deployment View
+- Frontend built via Vite → deployed as ICP asset canister (or static host)
+- Canisters deployed via DFX (local/dev/prod networks)
+- AIO Pod runs as a separately managed service; endpoints configured via env
+
+### Technical Capability Specification
+
+This section standardizes the functional and non‑functional capabilities exposed by the dapp.
+
+1) Functional Capabilities
+- Authentication
+  - Google OAuth 2.0 via `useGoogleAuth` + `GoogleAuthProvider`
+  - Wallet connect (Plug) with session persistence
+  - Requirements: `VITE_GOOGLE_CLIENT_ID`, CSP allowances for Google endpoints
+- AI Chat & Agent UI
+  - Chat container with message virtualization, tool outputs, and rich responses
+  - Prompt frameworks (intent/index/protocol adapters) in `src/.../config`
+- Device Initialization
+  - WiFi scan → password input → Bluetooth scan → GATT connect → WiFi provisioning → submit device record
+  - Implemented in `services/realDeviceService.ts` and coordinated by `services/deviceInitManager.ts`
+  - Progressive enhancement: uses Web APIs when available, falls back to realistic mock data otherwise
+- Wallet Views
+  - Wallet presentation restricted to `Profile` page for clarity
+
+2) Non‑Functional Capabilities
+- Performance: Vite bundling, lazy loading by routes/components where feasible; chunk size warnings monitored
+- Security:
+  - CSP enforced (ICP `.ic-assets.json5`) with explicit allow-lists for scripts/connect/img
+  - OAuth tokens kept in memory and localStorage only where strictly required; errors sanitized
+  - Web Bluetooth requests must originate from user gestures and HTTPS contexts
+- Accessibility: Color contrast aware palettes; keyboard and screen‑reader friendly components from Radix/shadcn
+- Internationalization: Copy structure designed for simple extraction (future i18n plumbing ready)
+
+3) API Contracts (Selected)
+- Device Services (`realDeviceService`)
+  - `scanWiFiNetworks(): Promise<WiFiNetwork[]>`
+    - Returns list with fields: `id,name,security,strength,frequency?,channel?`
+  - `scanBluetoothDevices(): Promise<BluetoothDevice[]>`
+    - Returns list with fields: `id,name,rssi,type,mac,paired?,connectable?`
+  - `connectBluetooth(device)` → Promise<boolean>
+  - `configureWiFiViaBluetooth(device, wifi, password?)` → Promise<boolean>
+  - `getConnectionProgress()` → `Array<{progress:number,message:string}>`
+  - All methods may throw `Error(message)`; callers must surface friendly UI
+- Device Initialization Manager (`deviceInitManager`)
+  - Steps: INIT → WIFI_SCAN → WIFI_SELECT → BLUETOOTH_SCAN → BLUETOOTH_SELECT → CONNECTING → SUCCESS
+  - Methods: `startDeviceInit()`, `selectWiFi(wifi)`, `selectBluetoothDevice(device)`, `submitDeviceRecord()`
+  - State mirrors steps, holds selections, progress, and last error
+
+4) Data Models (simplified)
+```ts
+type WiFiNetwork = { id: string; name: string; security: string; strength: number; password?: string; frequency?: number; channel?: number };
+type BluetoothDevice = { id: string; name: string; rssi: number; type: string; mac: string; paired?: boolean; connectable?: boolean };
+type DeviceRecord = { name: string; type: string; macAddress: string; wifiNetwork: string; status: string; connectedAt: string };
+```
+
+5) Error Handling & UX Rules
+- All async operations are wrapped with try/catch and surfaced through non‑blocking toasts or inline banners
+- `GoogleAuthProvider` never blocks app render; when Google fails it shows a soft warning and falls back to mock auth
+- Device flows show step progress and allow retry on recoverable errors
+
+6) Environment & Feature Flags
+- Required env (Vite):
+  - `VITE_GOOGLE_CLIENT_ID`, `VITE_API_URL`, `VITE_ENVIRONMENT`
+- Optional flags (future):
+  - `VITE_ENABLE_WEB_BLUETOOTH`, `VITE_ENABLE_WIFI_SCAN`
+
+7) Security & CSP Specification
+- Example ICP `.ic-assets.json5` additions:
+  - `script-src`: include `https://apis.google.com https://accounts.google.com`
+  - `connect-src`: include `https://accounts.google.com https://www.googleapis.com`
+  - `img-src`: include `https://lh3.googleusercontent.com`
+- Never load third‑party scripts from untrusted origins; prefer first‑party hosting
+
+8) Browser Support Matrix (guideline)
+- Chrome (latest): Full (Web Bluetooth behind permissions; WiFi enumeration often limited)
+- Edge (latest): Similar to Chrome
+- Safari/Firefox: No Web Bluetooth; flows automatically fall back to mock implementations
+
+9) Coding Standards (Frontend)
+- TypeScript strictness, explicit types on exported APIs
+- UI: shadcn/ui + Radix; Tailwind utility classes with semantic grouping
+- State: avoid deep prop-drilling; prefer context or query cache
+- Error messages: human‑readable and action‑oriented; never expose sensitive details
 
 ## Core Components
 
