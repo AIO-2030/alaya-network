@@ -3,7 +3,7 @@ set -e
 dfx stop
 dfx start --background --clean
 dfx deploy aio-base-frontend
-
+dfx deploy alaya-chat-nexus-frontend
 # add recharge principal
 echo "Add Recharge Principal"
 RECHARGE_PRINCIPAL_ID="jzpwm-zsjcq-ugkzp-nr7au-bydmm-c7rqk-tzp2r-gtode-fws2v-ehkfl-cqe"
@@ -22,6 +22,5 @@ else
   )"
 fi
 
-./minttokendev.sh
+#./minttokendev.sh
 
-dfx deploy alaya-chat-nexus-frontend
