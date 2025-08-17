@@ -43,7 +43,7 @@ git submodule update --remote --merge
 # Update specific submodule
 git submodule update --remote src/aio-base-backend        # master
 git submodule update --remote src/aio-base-frontend       # main
-git submodule update --remote src/alaya-chat-nexus-frontend  # main
+ # main
 ```
 
 ### Branch Management
@@ -133,7 +133,8 @@ cd src/aio-base-frontend
 
 # Ensure on correct branch
 git checkout main
-git pull origin main
+git submodule update --remote src/alaya-chat-nexus-frontend  
+pull origin main
 
 # Make changes...
 git add .
