@@ -1990,6 +1990,292 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Pixel Art Creation System
+
+The Pixel Art Creation System is a comprehensive pixel art creation and management platform integrated with the Internet Computer backend. It provides users with tools to create, save, and manage pixel art creations with full backend persistence and real-time collaboration capabilities.
+
+### Architecture Overview
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Creation UI   │    │   Pixel API     │    │ AIO Backend     │
+│   (React)       │◄──►│   Service       │◄──►│ Canister        │
+│                 │    │                 │    │                 │
+│ • Pixel Editor  │    │ • API Calls     │    │ • Project CRUD  │
+│ • Drawing Tools │    │ • Data Transform│    │ • Version Control│
+│ • Metadata Form │    │ • Auth Handling │    │ • Stable Storage│
+│ • Save Controls │    │ • Error Handling│    │ • User Indexing │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+         ┌───────────────────────▼───────────────────────┐
+         │           Gallery Integration                  │
+         │              & User Management                 │
+         │                                               │
+         │ • User Creation Display                       │
+         │ • Real-time Data Loading                      │
+         │ • Authentication Flow                         │
+         │ • Project Organization                        │
+         └───────────────────────────────────────────────┘
+```
+
+### Core Components
+
+#### 1. Pixel Art Creation Interface (`Creation.tsx`)
+- **Purpose**: Interactive pixel art creation workspace
+- **Features**:
+  - 32x32 pixel grid with customizable canvas
+  - Complete drawing toolkit (pen, eraser, fill, color picker)
+  - Real-time pixel art rendering with smooth scaling
+  - Comprehensive color palette with 16+ default colors
+  - Undo/redo functionality with action history
+  - Grid toggle and zoom controls
+  - Metadata input (title, description)
+  - Direct save to backend canister
+
+#### 2. Pixel Creation API Service (`pixelCreationApi.ts`)
+- **Purpose**: Frontend-backend integration layer for pixel art operations
+- **Capabilities**:
+  - Full CRUD operations for pixel art projects
+  - Version management and history tracking
+  - User authentication with Internet Identity
+  - Data format conversion (frontend ↔ backend)
+  - Error handling and recovery mechanisms
+  - Project listing and pagination
+  - Export functionality for IoT devices
+
+#### 3. Gallery Integration (`Gallery.tsx` - My Creator Tab)
+- **Purpose**: Display and manage user's pixel art creations
+- **Features**:
+  - Real-time data loading from backend
+  - Authentication-aware content display
+  - Project metadata visualization
+  - Edit functionality integration
+  - Canvas-based pixel art rendering
+  - Empty state and loading management
+
+### Technical Implementation
+
+#### Data Types and Interfaces
+
+```typescript
+// Frontend pixel art representation
+interface PixelArtData {
+  title?: string;
+  description?: string;
+  width: number;
+  height: number;
+  palette: string[];         // HEX color values
+  pixels: number[][];        // 2D array of palette indices
+  tags?: string[];
+}
+
+// Project management
+interface ProjectListItem {
+  projectId: string;
+  title: string;
+  description?: string;
+  owner: string;
+  createdAt: bigint;
+  updatedAt: bigint;
+  currentVersion: {
+    versionId: string;
+    createdAt: bigint;
+    editor: string;
+    message?: string;
+  };
+}
+```
+
+#### Backend Integration
+
+```typescript
+// Internet Computer Canister integration
+const createActor = async (): Promise<ActorSubclass<_SERVICE>> => {
+  const client = await AuthClient.create();
+  const identity = client.getIdentity();
+  
+  const agent = new HttpAgent({ 
+    host: HOST,
+    identity
+  });
+
+  if (isLocalNet()) {
+    await agent.fetchRootKey();
+  }
+
+  return Actor.createActor(idlFactory, {
+    agent,
+    canisterId: CANISTER_ID,
+  });
+};
+
+// Project creation workflow
+const createProject = async (pixelArt: PixelArtData, message?: string) => {
+  const actor = await createActor();
+  const backendSource = convertToBackendFormat(pixelArt);
+  
+  const result = await actor.create_pixel_project(
+    backendSource, 
+    message ? [message] : []
+  );
+  
+  if ('Ok' in result) {
+    return result.Ok; // Project ID
+  } else {
+    throw new Error(result.Err);
+  }
+};
+```
+
+### Pixel Art API Reference
+
+#### Pixel Art Data Types
+
+```candid
+type ProjectId = text;
+type VersionId = text;
+type PixelRow = vec nat16;
+
+type Frame = record {
+  duration_ms: nat32;
+  pixels: vec PixelRow;
+};
+
+type SourceMeta = record {
+  title: opt text;
+  description: opt text;
+  tags: opt vec text;
+};
+
+type PixelArtSource = record {
+  width: nat32;
+  height: nat32;
+  palette: vec text;
+  pixels: vec PixelRow;
+  frames: opt vec Frame;
+  metadata: opt SourceMeta;
+};
+
+type Version = record {
+  version_id: VersionId;
+  created_at: nat64;
+  editor: principal;
+  message: opt text;
+  source: PixelArtSource;
+};
+
+type Project = record {
+  project_id: ProjectId;
+  owner: principal;
+  created_at: nat64;
+  updated_at: nat64;
+  current_version: Version;
+  history: vec Version;
+};
+```
+
+#### Pixel Art API Endpoints
+
+```candid
+// Project creation and management
+"create_pixel_project": (PixelArtSource, opt text) -> (variant { Ok: ProjectId; Err: text });
+"save_pixel_version": (ProjectId, PixelArtSource, opt text, opt text) -> (variant { Ok: VersionId; Err: text });
+"get_pixel_project": (ProjectId) -> (opt Project) query;
+"get_pixel_version": (ProjectId, VersionId) -> (opt Version) query;
+"get_pixel_current_source": (ProjectId) -> (opt PixelArtSource) query;
+
+// User project management
+"list_pixel_projects_by_owner": (principal, nat64, nat64) -> (vec Project) query;
+"delete_pixel_project": (ProjectId) -> (variant { Ok: text; Err: text });
+"get_total_pixel_project_count": () -> (nat64) query;
+
+// Export functionality
+"export_pixel_for_device": (ProjectId, opt VersionId) -> (variant { Ok: text; Err: text }) query;
+```
+
+### User Experience Features
+
+#### Interactive Drawing Interface
+- **Smooth Drawing**: Line interpolation for smooth brush strokes
+- **Multiple Tools**: Pen, eraser, fill tool, color picker
+- **Undo/Redo**: Complete action history management
+- **Responsive Design**: Adaptive to different screen sizes
+
+#### Real-time Gallery Updates
+- **Dynamic Data Loading**: Auto-fetch user creations when switching to "My Creator" tab
+- **Authentication Integration**: Login prompts for unauthenticated users
+- **Empty State Management**: Guidance interface when no creations exist
+- **Error Handling**: Comprehensive error recovery mechanisms
+
+### Performance Optimizations
+
+#### Efficient State Management
+- **Minimal Re-renders**: Update Canvas only when necessary
+- **Memory Management**: Automatic cleanup of unused resources
+- **Batch Updates**: Optimize frequent pixel operations
+
+#### Canvas Optimization
+- **Dirty Region Tracking**: Redraw only changed areas
+- **Hardware Acceleration**: Utilize GPU rendering capabilities
+- **Adaptive Scaling**: Smart adjustment based on container size
+
+### Security & Privacy
+
+#### Data Protection
+- **Client-side Validation**: Input sanitization and validation
+- **Secure Storage**: Encrypted project data in IC canister
+- **Access Control**: Principal-based project ownership
+- **XSS Prevention**: Safe handling of user-generated content
+
+#### Privacy Features
+- **Local Backups**: Automatic cleanup of sensitive local data
+- **Anonymous Creation**: Option to create without persistent storage
+- **Data Portability**: Export functionality for user data ownership
+
+### Development Setup
+
+#### Environment Configuration
+```bash
+# Install dependencies
+cd src/alaya-chat-nexus-frontend
+npm install
+
+# Configure environment for pixel art system
+cat >> .env << EOF
+VITE_AIO_BASE_BACKEND_CANISTER_ID=your_backend_canister_id
+VITE_INTERNET_IDENTITY_CANISTER_ID=rdmx6-jaaaa-aaaaa-aaadq-cai
+VITE_DFX_NETWORK=local
+EOF
+
+# Start development server
+npm run dev
+
+# Run pixel art specific tests
+npm run test -- --testPathPattern="Creation|Gallery|pixelCreation"
+```
+
+#### Backend Integration
+```bash
+# Build and deploy backend with pixel art support
+cd src/aio-base-backend
+cargo build --release --target wasm32-unknown-unknown
+dfx deploy aio-base-backend
+
+# Generate TypeScript declarations
+dfx generate aio-base-backend
+```
+
+### Quick Navigation
+
+- `src/alaya-chat-nexus-frontend/src/pages/Creation.tsx`: Interactive pixel art creation interface
+- `src/alaya-chat-nexus-frontend/src/services/api/pixelCreationApi.ts`: Backend API integration service
+- `src/alaya-chat-nexus-frontend/src/pages/Gallery.tsx`: Updated gallery with user creation management
+- `src/aio-base-backend/src/pixel_creation_types.rs`: Backend pixel art data types and logic
+- `src/aio-base-backend/src/lib.rs`: Backend API endpoints (pixel art functions)
+- `src/aio-base-backend/aio-base-backend.did`: Candid interface definitions
+
 ## Support
 
 For questions, support, or collaboration opportunities:
@@ -2001,7 +2287,7 @@ For questions, support, or collaboration opportunities:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2025  
+**Version**: 1.1.0  
+**Last Updated**: December 2024  
 **Platform**: Internet Computer Protocol (ICP)  
 **License**: MIT License 
