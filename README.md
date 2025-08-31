@@ -52,15 +52,22 @@ The following improvements were implemented across the Chat Nexus frontend and s
   - Removed the inline "My Wallet" cards from `Index.tsx`, `Contracts.tsx`, `MyDevices.tsx`, and `Shop.tsx`.
   - Kept the wallet section exclusively on `Profile.tsx` per product requirements.
 
-- Device Initialization Flow (Add Device)
-  - Improved responsive layout and scroll handling so the main area is not covered by the bottom nav.
-  - Added WiFi password dialog (show/hide, Enter-to-submit) before proceeding to Bluetooth scan.
-  - Implemented `realDeviceService` which attempts real WiFi/Bluetooth discovery via web APIs with graceful fallbacks:
-    - WiFi: tries experimental Web WiFi / Network Information APIs; falls back to realistic mock data.
-    - Bluetooth: uses Web Bluetooth API for selection and GATT connection; falls back to realistic mock data.
-  - Switched `deviceInitManager` from `deviceService` (mock) to `realDeviceService` for scanning, connecting, configuring, and submitting device records.
+- Device Initialization Flow (Add Device) - **NEW Bluetooth-First Approach**
+  - **Complete Flow Redesign**: Industry-standard IoT device onboarding with 5-step process
+  - **Bluetooth-First Configuration**: 
+    1. Scan and connect to Bluetooth devices
+    2. Request WiFi networks from device via Bluetooth
+    3. Configure WiFi credentials through secure Bluetooth channel
+    4. Device connects to WiFi autonomously
+    5. Submit configured device to IC backend canister
+  - **Enhanced Technical Implementation**:
+    - `deviceInitManager`: New step sequence (BLUETOOTH_SCAN → BLUETOOTH_CONNECT → WIFI_SCAN → WIFI_CONFIG → SUCCESS)
+    - `realDeviceService`: Device-side WiFi scanning via `requestWiFiScanFromDevice()`
+    - `submitDeviceRecordToCanister()`: Direct IC backend integration for device persistence
+  - **Improved User Experience**: Real-time progress tracking, better error handling, mobile-responsive design
+  - **Security**: Secure credential transmission through established Bluetooth connection
 
-> Note: Real WiFi enumeration is restricted in most browsers. The implementation attempts all available web APIs and falls back to simulated data when unsupported. Web Bluetooth requires a supported browser (e.g., Chrome) and HTTPS context.
+> **Technical Advantage**: This approach eliminates browser WiFi API limitations by leveraging device-side scanning, providing a more reliable and industry-standard IoT configuration experience.
 
 ### Environment Configuration (Vite)
 
@@ -245,10 +252,13 @@ This section standardizes the functional and non‑functional capabilities expos
 - AI Chat & Agent UI
   - Chat container with message virtualization, tool outputs, and rich responses
   - Prompt frameworks (intent/index/protocol adapters) in `src/.../config`
-- Device Initialization
-  - WiFi scan → password input → Bluetooth scan → GATT connect → WiFi provisioning → submit device record
-  - Implemented in `services/realDeviceService.ts` and coordinated by `services/deviceInitManager.ts`
-  - Progressive enhancement: uses Web APIs when available, falls back to realistic mock data otherwise
+- Device Initialization (Bluetooth-First IoT Onboarding)
+  - **New 5-Step Flow**: Bluetooth scan → device connect → WiFi request → WiFi config → canister submit
+  - **Device-Side WiFi Scanning**: Eliminates browser WiFi API limitations
+  - **Secure Configuration**: Credentials transmitted via established Bluetooth channel
+  - **IC Backend Integration**: Direct canister storage with `submitDeviceRecordToCanister()`
+  - **Implementation**: `services/deviceInitManager.ts` + `services/realDeviceService.ts`
+  - **Progressive Enhancement**: Web Bluetooth API with comprehensive fallbacks
 - Wallet Views
   - Wallet presentation restricted to `Profile` page for clarity
 
@@ -262,25 +272,37 @@ This section standardizes the functional and non‑functional capabilities expos
 - Internationalization: Copy structure designed for simple extraction (future i18n plumbing ready)
 
 3) API Contracts (Selected)
-- Device Services (`realDeviceService`)
-  - `scanWiFiNetworks(): Promise<WiFiNetwork[]>`
-    - Returns list with fields: `id,name,security,strength,frequency?,channel?`
+- Device Services (`realDeviceService`) - **Updated for Bluetooth-First Flow**
   - `scanBluetoothDevices(): Promise<BluetoothDevice[]>`
     - Returns list with fields: `id,name,rssi,type,mac,paired?,connectable?`
-  - `connectBluetooth(device)` → Promise<boolean>
-  - `configureWiFiViaBluetooth(device, wifi, password?)` → Promise<boolean>
-  - `getConnectionProgress()` → `Array<{progress:number,message:string}>`
-  - All methods may throw `Error(message)`; callers must surface friendly UI
-- Device Initialization Manager (`deviceInitManager`)
-  - Steps: INIT → WIFI_SCAN → WIFI_SELECT → BLUETOOTH_SCAN → BLUETOOTH_SELECT → CONNECTING → SUCCESS
-  - Methods: `startDeviceInit()`, `selectWiFi(wifi)`, `selectBluetoothDevice(device)`, `submitDeviceRecord()`
-  - State mirrors steps, holds selections, progress, and last error
+  - `connectBluetooth(device): Promise<boolean>`
+    - Establishes secure GATT connection to IoT device
+  - `requestWiFiScanFromDevice(device): Promise<WiFiNetwork[]>` **NEW**
+    - Device-side WiFi scanning via Bluetooth, returns: `id,name,security,strength,frequency?,channel?`
+  - `configureWiFiViaBluetooth(device, wifi): Promise<boolean>`
+    - Secure WiFi credential transmission via established Bluetooth channel
+  - `submitDeviceRecordToCanister(record): Promise<boolean>` **NEW**
+    - Direct IC backend integration for device persistence
+  - All methods include comprehensive error handling with user-friendly messages
+- Device Initialization Manager (`deviceInitManager`) - **New Flow**
+  - **Updated Steps**: INIT → BLUETOOTH_SCAN → BLUETOOTH_SELECT → BLUETOOTH_CONNECT → WIFI_SCAN → WIFI_SELECT → WIFI_CONFIG → SUCCESS
+  - **Core Methods**: `startDeviceInit()`, `selectBluetoothDevice(device)`, `selectWiFi(wifi)`, `submitDeviceRecord()`
+  - **Enhanced State**: Includes Bluetooth connection status, WiFi configuration progress, IC submission status
 
-4) Data Models (simplified)
+4) Data Models (simplified) - **Updated for New Flow**
 ```ts
 type WiFiNetwork = { id: string; name: string; security: string; strength: number; password?: string; frequency?: number; channel?: number };
 type BluetoothDevice = { id: string; name: string; rssi: number; type: string; mac: string; paired?: boolean; connectable?: boolean };
-type DeviceRecord = { name: string; type: string; macAddress: string; wifiNetwork: string; status: string; connectedAt: string };
+type DeviceRecord = { 
+  name: string; 
+  type: string; 
+  macAddress: string; 
+  wifiNetwork: string; 
+  status: 'Connected' | 'Disconnected' | 'Configuring'; 
+  connectedAt: string;
+  deviceId?: string; // IC canister-generated ID
+};
+type DeviceInitStep = 'init' | 'bluetooth_scan' | 'bluetooth_select' | 'bluetooth_connect' | 'wifi_scan' | 'wifi_select' | 'wifi_config' | 'success';
 ```
 
 5) Error Handling & UX Rules
