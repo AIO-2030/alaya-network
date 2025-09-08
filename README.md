@@ -53,15 +53,16 @@ The following improvements were implemented across the Chat Nexus frontend and s
   - Kept the wallet section exclusively on `Profile.tsx` per product requirements.
 
 - Device Initialization Flow (Add Device) - **NEW Bluetooth-First Approach**
-  - **Complete Flow Redesign**: Industry-standard IoT device onboarding with 5-step process
+  - **Complete Flow Redesign**: Industry-standard IoT device onboarding with 6-step process
   - **Bluetooth-First Configuration**: 
     1. Scan and connect to Bluetooth devices
     2. Request WiFi networks from device via Bluetooth
     3. Configure WiFi credentials through secure Bluetooth channel
-    4. Device connects to WiFi autonomously
-    5. Submit configured device to IC backend canister
+    4. Send activation code to device
+    5. Verify device activation via Tencent Cloud API
+    6. Submit configured device to IC backend canister
   - **Enhanced Technical Implementation**:
-    - `deviceInitManager`: New step sequence (BLUETOOTH_SCAN → BLUETOOTH_CONNECT → WIFI_SCAN → WIFI_CONFIG → SUCCESS)
+    - `deviceInitManager`: New step sequence (BLUETOOTH_SCAN → BLUETOOTH_CONNECT → WIFI_SCAN → WIFI_CONFIG → ACTIVATION → SUCCESS)
     - `realDeviceService`: Device-side WiFi scanning via `requestWiFiScanFromDevice()`
     - `submitDeviceRecordToCanister()`: Direct IC backend integration for device persistence
   - **Improved User Experience**: Real-time progress tracking, better error handling, mobile-responsive design
@@ -786,6 +787,380 @@ const config = {
 - **Load Balancing**: Multiple ElevenLabs endpoints
 - **Caching**: Voice response caching for common queries
 - **CDN Integration**: Global voice asset distribution
+
+## Device Initialization System
+
+The Device Initialization System provides a comprehensive Bluetooth-first approach for IoT device onboarding and configuration. This system enables users to seamlessly connect and configure IoT devices through a secure, step-by-step process that leverages device-side capabilities and blockchain integration.
+
+### Architecture Overview
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend UI   │    │ Device Init     │    │   Backend       │
+│   (React)       │◄──►│ Manager         │◄──►│   (ICP)         │
+│                 │    │                 │    │                 │
+│ • Step Display  │    │ • State Mgmt    │    │ • Device Storage│
+│ • Progress Bar  │    │ • Flow Control  │    │ • User Indexing │
+│ • Error Handling│    │ • Error Recovery│    │ • Principal Auth│
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+         ┌───────────────────────▼───────────────────────┐
+         │           Real Device Service                 │
+         │                                               │
+         │ • Bluetooth Communication                     │
+         │ • WiFi Configuration                          │
+         │ • Activation Code Management                  │
+         │ • Tencent Cloud Integration                   │
+         └───────────────────────────────────────────────┘
+```
+
+
+
+### Device Initialization Flow
+
+The device initialization process follows a structured 6-step workflow designed for reliability and user experience:
+
+flowchart LR
+    user[User<br/>(Univoice dApp)]:::blue -->|BLE Config| ble[IoT Device<br/>(PixelMug)]:::yellow
+    ble -->|WiFi Setup<br/>+ Activation Code| wifi[WiFi Router]:::grey
+    wifi -->|Internet Connection| cloud[Tencent IoT Cloud<br/>Activation & MQTT]:::pink
+    cloud -->|Device Secret<br/>+ Verification| icp[ICP Canister<br/>(Device Registry)]:::green
+    icp -->|On-chain Record| alaya[ALAYA Network<br/>(Intent Detection)]:::red
+    alaya -->|Intent → Orchestration| ai[Univoice AI<br/>Expression & Output]:::cyan
+    ai -->|Multimodal Output| ble
+
+    classDef blue fill:#add8e6,stroke:#333,stroke-width:1px
+    classDef yellow fill:#ffff99,stroke:#333,stroke-width:1px
+    classDef grey fill:#d3d3d3,stroke:#333,stroke-width:1px
+    classDef pink fill:#ffb6c1,stroke:#333,stroke-width:1px
+    classDef green fill:#90ee90,stroke:#333,stroke-width:1px
+    classDef red fill:#f08080,stroke:#333,stroke-width:1px
+    classDef cyan fill:#e0ffff,stroke:#333,stroke-width:1px
+
+#### Step 1: Bluetooth Device Scanning
+```typescript
+// Initialize device discovery
+async startDeviceInit(): Promise<void> {
+  this.state.step = DeviceInitStep.BLUETOOTH_SCAN;
+  this.state.isScanningBluetooth = true;
+  
+  // Scan for available Bluetooth devices
+  const devices = await realDeviceService.scanBluetoothDevices();
+  this.state.bluetoothDevices = devices;
+  
+  this.state.step = DeviceInitStep.BLUETOOTH_SELECT;
+}
+```
+
+**Features:**
+- Automatic Bluetooth device discovery
+- Device capability detection
+- Connection status validation
+- Error handling with user-friendly messages
+
+#### Step 2: Bluetooth Device Selection and Connection
+```typescript
+// Connect to selected device
+async selectBluetoothDevice(device: BluetoothDevice): Promise<void> {
+  this.state.selectedBluetoothDevice = device;
+  this.state.step = DeviceInitStep.BLUETOOTH_CONNECT;
+  this.state.isConnectingBluetooth = true;
+  
+  // Establish secure Bluetooth connection
+  await realDeviceService.connectBluetooth(device);
+  
+  // Proceed to WiFi scanning
+  this.state.step = DeviceInitStep.WIFI_SCAN;
+  await this.requestWiFiNetworksFromDevice();
+}
+```
+
+**Features:**
+- Secure GATT connection establishment
+- Connection status monitoring
+- Automatic progression to next step
+- Comprehensive error recovery
+
+#### Step 3: WiFi Network Discovery
+```typescript
+// Request WiFi networks from device
+private async requestWiFiNetworksFromDevice(): Promise<void> {
+  if (!this.state.selectedBluetoothDevice) {
+    throw new Error('No Bluetooth device selected');
+  }
+  
+  // Device-side WiFi scanning via Bluetooth
+  const networks = await realDeviceService.requestWiFiScanFromDevice(
+    this.state.selectedBluetoothDevice
+  );
+  
+  this.state.wifiNetworks = networks;
+  this.state.step = DeviceInitStep.WIFI_SELECT;
+}
+```
+
+**Features:**
+- Device-side WiFi scanning (eliminates browser limitations)
+- Network security type detection
+- Signal strength indication
+- Real-time network list updates
+
+#### Step 4: WiFi Network Configuration
+```typescript
+// Configure WiFi on device
+async selectWiFi(wifiNetwork: WiFiNetwork): Promise<void> {
+  this.state.selectedWifi = wifiNetwork;
+  this.state.step = DeviceInitStep.WIFI_CONFIG;
+  this.state.isConfiguringWifi = true;
+  
+  // Send WiFi credentials via secure Bluetooth channel
+  await realDeviceService.configureWiFiViaBluetooth(
+    this.state.selectedBluetoothDevice,
+    wifiNetwork
+  );
+  
+  this.state.isConfiguringWifi = false;
+}
+```
+
+**Features:**
+- Secure credential transmission
+- Password validation and encryption
+- Configuration status monitoring
+- Automatic device WiFi connection
+
+#### Step 5: Device Activation
+```typescript
+// Send activation code to device
+async sendActivationCode(activationCode: string): Promise<void> {
+  this.state.activationCode = activationCode;
+  this.state.isTransmittingActivationCode = true;
+  
+  // Transmit activation code via Bluetooth
+  await realDeviceService.sendActivationCodeToDevice(
+    this.state.selectedBluetoothDevice,
+    activationCode
+  );
+  
+  // Verify activation
+  await this.verifyDeviceActivation();
+}
+
+// Verify device activation
+private async verifyDeviceActivation(): Promise<void> {
+  this.state.isVerifyingActivation = true;
+  
+  // Verify via Tencent Cloud API
+  const isActivated = await realDeviceService.verifyDeviceActivationViaTencentCloud(
+    this.state.selectedBluetoothDevice,
+    this.state.activationCode
+  );
+  
+  if (isActivated) {
+    this.state.step = DeviceInitStep.SUCCESS;
+  }
+}
+```
+
+**Features:**
+- Secure activation code transmission
+- Cloud-based verification system
+- Activation status tracking
+- Error handling and retry mechanisms
+
+#### Step 6: Backend Integration
+```typescript
+// Submit device record to IC backend
+async submitDeviceRecord(): Promise<boolean> {
+  const principalId = getPrincipalId();
+  if (!principalId) {
+    throw new Error('User principal ID not found');
+  }
+  
+  const record: DeviceRecord = {
+    name: this.state.selectedBluetoothDevice.name,
+    type: this.state.selectedBluetoothDevice.type,
+    macAddress: this.state.selectedBluetoothDevice.mac,
+    wifiNetwork: this.state.selectedWifi.name,
+    status: 'Connected',
+    connectedAt: new Date().toISOString(),
+    principalId: principalId
+  };
+  
+  // Submit to IC canister
+  const success = await realDeviceService.submitDeviceRecordToCanister(record);
+  
+  if (success) {
+    this.resetState();
+  }
+  
+  return success;
+}
+```
+
+**Features:**
+- Principal-based authentication
+- Device metadata persistence
+- User-device association
+- State management and cleanup
+
+### State Management
+
+The DeviceInitManager maintains comprehensive state throughout the initialization process:
+
+```typescript
+interface DeviceInitState {
+  step: DeviceInitStep;
+  selectedWifi: WiFiNetwork | null;
+  selectedBluetoothDevice: BluetoothDevice | null;
+  wifiNetworks: WiFiNetwork[];
+  bluetoothDevices: BluetoothDevice[];
+  activationCode: string | null;
+  
+  // Loading states
+  isScanningBluetooth: boolean;
+  isConnectingBluetooth: boolean;
+  isConfiguringWifi: boolean;
+  isTransmittingActivationCode: boolean;
+  isVerifyingActivation: boolean;
+  
+  // Progress tracking
+  connectionProgress: number;
+  error: string | null;
+}
+```
+
+### Error Handling and Recovery
+
+The system implements comprehensive error handling with automatic recovery mechanisms:
+
+```typescript
+// Error categorization and handling
+const handleError = (error: any, context: string) => {
+  switch (context) {
+    case 'bluetooth_scan':
+      return 'Failed to scan Bluetooth devices. Please ensure Bluetooth is enabled.';
+    case 'bluetooth_connect':
+      return 'Failed to connect to device. Please try again or select a different device.';
+    case 'wifi_scan':
+      return 'Failed to scan WiFi networks. Please ensure device is connected.';
+    case 'wifi_config':
+      return 'Failed to configure WiFi. Please check credentials and try again.';
+    case 'activation':
+      return 'Device activation failed. Please verify activation code.';
+    default:
+      return 'An unexpected error occurred. Please try again.';
+  }
+};
+```
+
+### Security Features
+
+#### Bluetooth Security
+- Secure GATT connection establishment
+- Encrypted credential transmission
+- Device authentication and verification
+- Connection timeout and cleanup
+
+#### Data Protection
+- Principal-based device ownership
+- Encrypted WiFi credential storage
+- Secure activation code handling
+- Privacy-preserving device metadata
+
+#### Access Control
+- User authentication required
+- Device ownership verification
+- Permission-based operations
+- Audit trail for all operations
+
+### Browser Compatibility
+
+#### Supported Features
+- **Chrome/Edge**: Full Bluetooth and WiFi support
+- **Firefox**: Limited Bluetooth support, graceful fallbacks
+- **Safari**: No Bluetooth support, mock implementations
+
+#### Progressive Enhancement
+```typescript
+// Feature detection and fallbacks
+const checkBrowserCapabilities = () => {
+  return {
+    bluetooth: !!navigator.bluetooth,
+    webRTC: !!navigator.mediaDevices,
+    webSocket: !!window.WebSocket
+  };
+};
+```
+
+### Performance Optimizations
+
+#### State Management
+- Minimal re-renders through targeted state updates
+- Efficient error state management
+- Memory cleanup on process completion
+- Optimized Bluetooth connection handling
+
+#### User Experience
+- Real-time progress indicators
+- Non-blocking operations
+- Smooth step transitions
+- Responsive error recovery
+
+### Integration Points
+
+#### Frontend Integration
+- React component integration
+- State management with hooks
+- Real-time UI updates
+- Error boundary implementation
+
+#### Backend Integration
+- IC canister communication
+- Principal authentication
+- Device record persistence
+- User-device association
+
+#### External Services
+- Tencent Cloud API integration
+- Bluetooth device communication
+- WiFi configuration protocols
+- Activation verification systems
+
+### Development and Testing
+
+#### Development Setup
+```bash
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Set VITE_BLUETOOTH_ENABLED=true for development
+
+# Start development server
+npm run dev
+```
+
+#### Testing Strategy
+- Unit tests for state management
+- Integration tests for Bluetooth operations
+- Mock implementations for unsupported browsers
+- End-to-end testing for complete flow
+
+#### Debugging Tools
+```typescript
+// Comprehensive logging
+const debugLog = (step: DeviceInitStep, message: string, data?: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[DeviceInit:${step}] ${message}`, data);
+  }
+};
+```
+
+This comprehensive Device Initialization System provides a robust, secure, and user-friendly approach to IoT device onboarding, ensuring reliable device configuration while maintaining high security standards and excellent user experience.
 
 ## Agent Interaction Implementation
 
