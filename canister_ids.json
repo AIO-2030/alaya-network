@@ -1,8 +1,11 @@
 {
-    "aio-base-backend": {
-      "ic": "sftq6-cyaaa-aaaau-abyaa-cai"
-    },
-    "aio-base-frontend": {
-      "ic": "scswk-paaaa-aaaau-abyaq-cai"
-    }
+  "aio-base-backend": {
+    "ic": "sftq6-cyaaa-aaaau-abyaa-cai"
+  },
+  "aio-base-frontend": {
+    "ic": "scswk-paaaa-aaaau-abyaq-cai"
+  },
+  "alaya-chat-nexus-frontend": {
+    "ic": "bjlli-qiaaa-aaaau-ab3ha-cai"
+  }
 }
