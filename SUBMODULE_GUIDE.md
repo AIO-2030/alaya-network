@@ -43,6 +43,7 @@ git submodule update --remote --merge
 # Update specific submodule
 git submodule update --remote src/aio-base-backend        # master
 git submodule update --remote src/aio-base-frontend       # main
+git submodule update --remote src/alaya-chat-nexus-frontend
  # main
 ```
 
