@@ -35,3 +35,5 @@ src/aio-base-frontend-backup/
 # Other build artifacts
 package-lock.json
 src/alaya-chat-nexus-frontend-backup/
+
+.DS_Store
