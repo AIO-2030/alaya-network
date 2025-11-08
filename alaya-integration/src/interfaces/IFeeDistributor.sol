@@ -17,13 +17,5 @@ interface IFeeDistributor {
      * @dev Requires msg.value >= feeWei()
      */
     function collectEth() external payable;
-
-    /**
-     * @notice Collects ERC20 token fee from the caller and forwards to project wallet
-     * @param token The ERC20 token address
-     * @param amount The amount of tokens to collect
-     * @dev User must approve this contract beforehand
-     */
-    function collectErc20(address token, uint256 amount) external;
 }
 

@@ -60,8 +60,6 @@ contract InteractionTest is Test {
         feeDistributor = new FeeDistributor(
             projectWallet,
             INITIAL_FEE_WEI,
-            address(mockToken), // usdtToken
-            address(aioToken), // aioToken
             owner
         );
 
@@ -158,82 +156,6 @@ contract InteractionTest is Test {
         assertEq(projectWallet.balance, initialBalance);
     }
 
-    // ============ interact20 (ERC20) Tests ============
-
-    function test_Interact20_Success() public {
-        uint256 amount = 100 * 1e18;
-        string memory action = "test_action";
-        bytes memory meta = "test_meta";
-        uint256 initialBalance = mockToken.balanceOf(projectWallet);
-
-        // User approves
-        vm.startPrank(user1);
-        mockToken.approve(address(interaction), amount);
-
-        bytes32 actionHash = keccak256(bytes(action));
-        vm.expectEmit(true, true, false, true);
-        emit InteractionRecorded(user1, actionHash, action, meta, block.timestamp);
-
-        interaction.interact20(address(mockToken), amount, action, meta);
-        vm.stopPrank();
-
-        assertEq(mockToken.balanceOf(projectWallet), initialBalance + amount);
-        assertEq(mockToken.balanceOf(address(feeDistributor)), 0);
-        assertEq(mockToken.balanceOf(user1), 1000 * 1e18 - amount);
-    }
-
-    function test_Interact20_ZeroToken_Reverts() public {
-        uint256 amount = 100 * 1e18;
-        string memory action = "test_action";
-        bytes memory meta = "test_meta";
-
-        vm.prank(user1);
-        vm.expectRevert("Interaction: token cannot be zero address");
-        interaction.interact20(address(0), amount, action, meta);
-    }
-
-    function test_Interact20_ZeroAmount_Reverts() public {
-        string memory action = "test_action";
-        bytes memory meta = "test_meta";
-
-        vm.prank(user1);
-        vm.expectRevert("Interaction: amount cannot be zero");
-        interaction.interact20(address(mockToken), 0, action, meta);
-    }
-
-    function test_Interact20_InsufficientAllowance_Reverts() public {
-        uint256 amount = 100 * 1e18;
-        uint256 approvedAmount = amount - 1;
-        string memory action = "test_action";
-        bytes memory meta = "test_meta";
-
-        vm.prank(user1);
-        mockToken.approve(address(interaction), approvedAmount);
-
-        vm.prank(user1);
-        vm.expectRevert();
-        interaction.interact20(address(mockToken), amount, action, meta);
-    }
-
-    function test_Interact20_MultipleInteractions() public {
-        uint256 amount1 = 50 * 1e18;
-        uint256 amount2 = 100 * 1e18;
-        uint256 initialBalance = mockToken.balanceOf(projectWallet);
-
-        vm.startPrank(user1);
-        mockToken.approve(address(interaction), amount1);
-        interaction.interact20(address(mockToken), amount1, "action1", "meta1");
-        vm.stopPrank();
-
-        vm.startPrank(user2);
-        mockToken.approve(address(interaction), amount2);
-        interaction.interact20(address(mockToken), amount2, "action2", "meta2");
-        vm.stopPrank();
-
-        assertEq(mockToken.balanceOf(projectWallet), initialBalance + amount1 + amount2);
-        assertEq(mockToken.balanceOf(user1), 1000 * 1e18 - amount1);
-        assertEq(mockToken.balanceOf(user2), 1000 * 1e18 - amount2);
-    }
 
     // ============ Allowlist Tests ============
 
@@ -327,21 +249,6 @@ contract InteractionTest is Test {
         interaction.interact{value: amount}(action, meta);
     }
 
-    function test_Allowlist_WorksForInteract20() public {
-        uint256 amount = 100 * 1e18;
-        string memory action = "disallowed_action";
-        bytes memory meta = "meta";
-
-        // Enable allowlist
-        interaction.setAllowlistEnabled(true);
-
-        vm.prank(user1);
-        mockToken.approve(address(interaction), amount);
-
-        vm.prank(user1);
-        vm.expectRevert("Interaction: action not allowed");
-        interaction.interact20(address(mockToken), amount, action, meta);
-    }
 
     // ============ Owner Functions Tests ============
 
@@ -433,24 +340,6 @@ contract InteractionTest is Test {
         interaction.interact{value: amount}(action, meta);
     }
 
-    function test_Integration_FullFlow_ERC20() public {
-        uint256 amount = 100 * 1e18;
-        string memory action = "integration_test_erc20";
-        bytes memory meta = "integration_meta_erc20";
-        uint256 initialBalance = mockToken.balanceOf(projectWallet);
-        uint256 user1InitialBalance = mockToken.balanceOf(user1);
-
-        // User approves and interacts
-        vm.startPrank(user1);
-        mockToken.approve(address(interaction), amount);
-        interaction.interact20(address(mockToken), amount, action, meta);
-        vm.stopPrank();
-
-        // Verify tokens were forwarded
-        assertEq(mockToken.balanceOf(projectWallet), initialBalance + amount);
-        assertEq(mockToken.balanceOf(user1), user1InitialBalance - amount);
-        assertEq(mockToken.balanceOf(address(feeDistributor)), 0);
-    }
 
     // ============ Fuzz Tests ============
 
@@ -465,23 +354,5 @@ contract InteractionTest is Test {
         assertEq(projectWallet.balance, initialBalance + amount);
     }
 
-    function testFuzz_Interact20(uint256 amount) public {
-        amount = bound(amount, 1, 1000 * 1e18);
-        uint256 initialBalance = mockToken.balanceOf(projectWallet);
-        uint256 user1InitialBalance = mockToken.balanceOf(user1);
-        
-        // Mint additional tokens if needed
-        if (user1InitialBalance < amount) {
-            mockToken.mint(user1, amount - user1InitialBalance);
-        }
-
-        vm.startPrank(user1);
-        mockToken.approve(address(interaction), amount);
-        interaction.interact20(address(mockToken), amount, "fuzz_action", "fuzz_meta");
-        vm.stopPrank();
-
-        assertEq(mockToken.balanceOf(projectWallet), initialBalance + amount);
-        assertEq(mockToken.balanceOf(address(feeDistributor)), 0);
-    }
 }
 

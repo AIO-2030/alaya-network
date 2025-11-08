@@ -39,13 +39,123 @@ $ forge fmt
 $ forge snapshot
 ```
 
-### Anvil
+### 本地测试网络 (Anvil)
+
+#### 启动本地测试网络
+
+**方法 1: 使用启动脚本（推荐）**
 
 ```shell
-$ anvil
+./scripts/start-local-network.sh
 ```
 
+**方法 2: 直接使用 Anvil 命令**
+
+```shell
+anvil
+```
+
+**方法 3: 自定义配置启动**
+
+```shell
+anvil \
+  --host 0.0.0.0 \
+  --port 8545 \
+  --accounts 10 \
+  --balance 10000 \
+  --gas-limit 30000000
+```
+
+启动后，Anvil 会显示：
+- RPC URL: `http://127.0.0.1:8545`
+- Chain ID: `31337`
+- 10 个预充值账户（每个账户 10000 ETH）及其私钥
+
+#### 部署到本地测试网络
+
+**⚠️ 重要**: 部署时必须指定 `--private-key` 和 `--sender` 参数，否则会报错。
+
+**方法 1: 使用部署脚本（最简单，推荐）**
+
+```shell
+./scripts/deploy-local.sh
+```
+
+**方法 2: 手动部署命令**
+
+```shell
+# 使用 Anvil 默认的第一个账户
+# 地址: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+# 私钥: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+forge script script/Deploy.s.sol:DeployScript \
+  --sig "deployLocal()" \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --broadcast
+```
+
+或者使用 Anvil 启动时显示的其他账户：
+
+```shell
+# 使用 Anvil 启动时显示的账户地址和私钥
+forge script script/Deploy.s.sol:DeployScript \
+  --sig "deployLocal()" \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key <ANVIL_PRIVATE_KEY> \
+  --sender <ANVIL_ADDRESS> \
+  --broadcast
+```
+
+**注意**: `deployLocal()` 函数会：
+- 自动部署 MockERC20 作为 USDT token
+- 使用 deployer 地址作为所有合约的 owner 和 projectWallet
+- 使用较小的测试值（100万代币，0.0001 ETH 手续费）
+- 无需设置任何环境变量
+
+部署完成后，脚本会输出所有合约地址的 JSON 格式，包括：
+- `mockUsdt`: Mock USDT token 地址
+- `aioToken`: AIOERC20 token 地址
+- `feeDistributor`: FeeDistributor 合约地址
+- `interaction`: Interaction 合约地址
+- `governanceBootstrapper`: GovernanceBootstrapper 合约地址
+- `owner`: 合约所有者地址（deployer）
+
 ### Deploy
+
+#### 本地测试网络
+
+**方法 1: 使用部署脚本（推荐）**
+
+```shell
+# 1. 启动本地测试网络（在另一个终端）
+./scripts/start-local-network.sh
+
+# 2. 部署合约（在新终端）
+./scripts/deploy-local.sh
+```
+
+**方法 2: 手动部署**
+
+```shell
+# 1. 启动本地测试网络（在另一个终端）
+./scripts/start-local-network.sh
+
+# 2. 部署合约（在新终端）
+# ⚠️ 必须同时指定 --private-key 和 --sender 参数
+forge script script/Deploy.s.sol:DeployScript \
+  --sig "deployLocal()" \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --broadcast
+```
+
+**Anvil 默认账户信息**: 
+- 第一个账户地址: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
+- 第一个账户私钥: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+- 每个账户预充值: 10000 ETH
+- 你也可以使用 Anvil 启动时显示的其他账户地址和私钥
 
 #### Base Sepolia Testnet
 
@@ -85,7 +195,8 @@ After deployment, enable governance mode using the helper script:
 
 ```shell
 # Set required environment variables
-export TIMELOCK_ADDRESS=<timelock_or_safe_address>
+# TIMELOCK_ADDRESS: Use the same Safe multisig address (or any governance address)
+export TIMELOCK_ADDRESS=$SAFE_MULTISIG  # 直接使用 Safe 多签地址
 export PARAM_SETTER_ADDRESS=<param_setter_address>
 export FEE_DISTRIBUTOR_ADDRESS=<deployed_fee_distributor_address>
 export INTERACTION_ADDRESS=<deployed_interaction_address>
@@ -101,6 +212,7 @@ forge script script/Helpers.s.sol:HelperScripts \
 Or use the GovernanceBootstrapper for a single transaction:
 
 ```shell
+export TIMELOCK_ADDRESS=$SAFE_MULTISIG  # 直接使用 Safe 多签地址
 export BOOTSTRAPPER_ADDRESS=<deployed_bootstrapper_address>
 
 forge script script/Helpers.s.sol:HelperScripts \
@@ -109,6 +221,8 @@ forge script script/Helpers.s.sol:HelperScripts \
   --private-key $PRIVATE_KEY \
   --broadcast
 ```
+
+**Note**: The `TIMELOCK_ADDRESS` can be any governance address (Safe multisig, TimelockController, etc.). For simplicity, you can use the same `SAFE_MULTISIG` address that owns the contracts.
 
 ### Cast
 

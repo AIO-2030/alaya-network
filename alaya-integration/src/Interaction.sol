@@ -4,8 +4,6 @@ pragma solidity ^0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IFeeDistributor} from "./interfaces/IFeeDistributor.sol";
 
 /**
@@ -14,7 +12,6 @@ import {IFeeDistributor} from "./interfaces/IFeeDistributor.sol";
  * @dev Records verifiable interaction events and pipes fees to FeeDistributor
  */
 contract Interaction is Ownable, AccessControl, ReentrancyGuard {
-    using SafeERC20 for IERC20;
 
     /// @notice FeeDistributor contract address (immutable)
     IFeeDistributor public immutable feeDistributor;
@@ -59,9 +56,9 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
     event ActionAllowlistUpdated(bytes32 indexed actionHash, bool allowed);
 
     /// @notice Emitted when governance mode is enabled
-    /// @param timelock TimelockController or Safe multisig address
+    /// @param admin Safe multisig address (receives DEFAULT_ADMIN_ROLE)
     /// @param paramSetter Address that can set parameters
-    event GovernanceModeEnabled(address indexed timelock, address indexed paramSetter);
+    event GovernanceModeEnabled(address indexed admin, address indexed paramSetter);
 
     /**
      * @notice Deploys Interaction contract
@@ -113,53 +110,6 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         emit InteractionRecorded(msg.sender, actionHash, action, meta, block.timestamp);
     }
 
-    /**
-     * @notice Records an interaction with ERC20 token fee payment
-     * @param token The ERC20 token address
-     * @param amount Amount of tokens to pay as fee
-     * @param action Action string identifier
-     * @param meta Opaque metadata blob
-     * @dev User must approve this contract beforehand. Protected by nonReentrant.
-     */
-    function interact20(
-        address token,
-        uint256 amount,
-        string calldata action,
-        bytes calldata meta
-    ) external nonReentrant {
-        if (token == address(0)) {
-            revert("Interaction: token cannot be zero address");
-        }
-        if (amount == 0) {
-            revert("Interaction: amount cannot be zero");
-        }
-
-        // Calculate action hash for event emission and allowlist check
-        bytes32 actionHash = keccak256(bytes(action));
-
-        // Check allowlist if enabled
-        if (allowlistEnabled) {
-            if (!actionAllowlist[actionHash]) {
-                revert("Interaction: action not allowed");
-            }
-        }
-
-        // Pull tokens from user to this contract
-        IERC20 tokenContract = IERC20(token);
-        tokenContract.safeTransferFrom(msg.sender, address(this), amount);
-
-        // Approve FeeDistributor to pull tokens from this contract
-        // Note: We reset approval first to handle tokens that require zero allowance first
-        tokenContract.approve(address(feeDistributor), 0);
-        tokenContract.approve(address(feeDistributor), amount);
-
-        // Forward ERC20 tokens to FeeDistributor
-        // FeeDistributor will pull from this contract and forward to projectWallet
-        feeDistributor.collectErc20(token, amount);
-
-        // Emit interaction event with indexed actionHash for Dune Analytics filtering
-        emit InteractionRecorded(msg.sender, actionHash, action, meta, block.timestamp);
-    }
 
     /**
      * @notice Returns configuration information
@@ -236,12 +186,12 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Enables governance mode with timelock and parameter setter role
-     * @dev Only callable once by owner or trustedBootstrapper. After enabling, owner renounces control to timelock/admin.
-     * @param timelock TimelockController or Safe multisig address (will receive DEFAULT_ADMIN_ROLE)
+     * @notice Enables governance mode with Safe multisig and parameter setter role
+     * @dev Only callable once by owner or trustedBootstrapper. After enabling, owner renounces control to Safe multisig.
+     * @param admin Safe multisig address (will receive DEFAULT_ADMIN_ROLE and ownership)
      * @param paramSetter Address that can set parameters (will receive PARAM_SETTER_ROLE)
      */
-    function enableGovernanceMode(address timelock, address paramSetter) external {
+    function enableGovernanceMode(address admin, address paramSetter) external {
         // Allow owner or trusted bootstrapper to call
         if (msg.sender != owner() && msg.sender != trustedBootstrapper) {
             revert("Interaction: caller is not the owner or trusted bootstrapper");
@@ -251,8 +201,8 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         if (governanceModeEnabled) {
             revert("Interaction: governance mode already enabled");
         }
-        if (timelock == address(0)) {
-            revert("Interaction: timelock cannot be zero address");
+        if (admin == address(0)) {
+            revert("Interaction: admin cannot be zero address");
         }
         if (paramSetter == address(0)) {
             revert("Interaction: paramSetter cannot be zero address");
@@ -261,17 +211,17 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         governanceModeEnabled = true;
 
         // Grant roles
-        _grantRole(DEFAULT_ADMIN_ROLE, timelock);
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PARAM_SETTER_ROLE, paramSetter);
 
         // Revoke owner's admin role
         _revokeRole(DEFAULT_ADMIN_ROLE, owner());
         
-        // Transfer ownership to timelock to ensure EOA owner calls revert after governance mode
+        // Transfer ownership to Safe multisig to ensure EOA owner calls revert after governance mode
         // Use _transferOwnership directly to allow trusted bootstrapper to transfer on behalf of owner
-        _transferOwnership(timelock);
+        _transferOwnership(admin);
 
-        emit GovernanceModeEnabled(timelock, paramSetter);
+        emit GovernanceModeEnabled(admin, paramSetter);
     }
 
     /**

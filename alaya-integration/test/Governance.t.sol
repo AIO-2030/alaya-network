@@ -88,8 +88,6 @@ contract GovernanceTest is Test {
         feeDistributor = new FeeDistributor(
             projectWallet,
             INITIAL_FEE_WEI,
-            address(mockToken), // usdtToken
-            address(aioToken), // aioToken
             owner
         );
 
@@ -155,10 +153,10 @@ contract GovernanceTest is Test {
     }
 
     function test_EnableGovernanceMode_ZeroAddress_Reverts() public {
-        vm.expectRevert("FeeDistributor: timelock cannot be zero address");
+        vm.expectRevert("FeeDistributor: admin cannot be zero address");
         feeDistributor.enableGovernanceMode(address(0), paramSetter);
 
-        vm.expectRevert("Interaction: timelock cannot be zero address");
+        vm.expectRevert("Interaction: admin cannot be zero address");
         interaction.enableGovernanceMode(address(0), paramSetter);
 
         vm.expectRevert("FeeDistributor: paramSetter cannot be zero address");

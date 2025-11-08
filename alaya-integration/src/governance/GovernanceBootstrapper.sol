@@ -15,18 +15,18 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract GovernanceBootstrapper {
     /// @notice Emitted when governance is bootstrapped for a contract
     /// @param contractAddress The contract that was bootstrapped
-    /// @param timelock The timelock address that received DEFAULT_ADMIN_ROLE
+    /// @param admin The Safe multisig address that received DEFAULT_ADMIN_ROLE
     /// @param paramSetter The paramSetter address that received PARAM_SETTER_ROLE
     event GovernanceBootstrapped(
         address indexed contractAddress,
-        address indexed timelock,
+        address indexed admin,
         address indexed paramSetter
     );
 
     /**
      * @notice Bootstrap governance for FeeDistributor
      * @param feeDistributor Address of the FeeDistributor contract
-     * @param timelock Address of the TimelockController (or Safe multisig)
+     * @param admin Safe multisig address (will receive DEFAULT_ADMIN_ROLE and ownership)
      * @param paramSetter Address that can set parameters
      * @dev This function should be called by the owner of FeeDistributor.
      *      IMPORTANT: The owner must first call setTrustedBootstrapper(address(this)) on FeeDistributor
@@ -34,7 +34,7 @@ contract GovernanceBootstrapper {
      */
     function bootstrapFeeDistributor(
         address feeDistributor,
-        address timelock,
+        address admin,
         address paramSetter
     ) external {
         // Verify that this bootstrapper is set as trusted
@@ -48,13 +48,13 @@ contract GovernanceBootstrapper {
             revert("GovernanceBootstrapper: caller is not the owner");
         }
         
-        _bootstrapFeeDistributor(feeDistributor, timelock, paramSetter);
+        _bootstrapFeeDistributor(feeDistributor, admin, paramSetter);
     }
 
     /**
      * @notice Bootstrap governance for Interaction
      * @param interaction Address of the Interaction contract
-     * @param timelock Address of the TimelockController (or Safe multisig)
+     * @param admin Safe multisig address (will receive DEFAULT_ADMIN_ROLE and ownership)
      * @param paramSetter Address that can set allowlist
      * @dev This function should be called by the owner of Interaction.
      *      IMPORTANT: The owner must first call setTrustedBootstrapper(address(this)) on Interaction
@@ -62,7 +62,7 @@ contract GovernanceBootstrapper {
      */
     function bootstrapInteraction(
         address interaction,
-        address timelock,
+        address admin,
         address paramSetter
     ) external {
         // Verify that this bootstrapper is set as trusted
@@ -76,7 +76,7 @@ contract GovernanceBootstrapper {
             revert("GovernanceBootstrapper: caller is not the owner");
         }
         
-        _bootstrapInteraction(interaction, timelock, paramSetter);
+        _bootstrapInteraction(interaction, admin, paramSetter);
     }
 
     /**
@@ -87,16 +87,16 @@ contract GovernanceBootstrapper {
      */
     function _bootstrapFeeDistributor(
         address feeDistributor,
-        address timelock,
+        address admin,
         address paramSetter
     ) internal {
         // Direct call - msg.sender (bootstrapper) will be checked by onlyOwner modifier
         // This means the caller must have set this bootstrapper as owner, or we need a different approach
         // For now, we require that the caller is the owner and call directly
         // The limitation is that bootstrapper cannot truly bypass onlyOwner without contract modifications
-        FeeDistributor(payable(feeDistributor)).enableGovernanceMode(timelock, paramSetter);
+        FeeDistributor(payable(feeDistributor)).enableGovernanceMode(admin, paramSetter);
         
-        emit GovernanceBootstrapped(feeDistributor, timelock, paramSetter);
+        emit GovernanceBootstrapped(feeDistributor, admin, paramSetter);
     }
 
     /**
@@ -105,19 +105,19 @@ contract GovernanceBootstrapper {
      */
     function _bootstrapInteraction(
         address interaction,
-        address timelock,
+        address admin,
         address paramSetter
     ) internal {
-        Interaction(interaction).enableGovernanceMode(timelock, paramSetter);
+        Interaction(interaction).enableGovernanceMode(admin, paramSetter);
         
-        emit GovernanceBootstrapped(interaction, timelock, paramSetter);
+        emit GovernanceBootstrapped(interaction, admin, paramSetter);
     }
 
     /**
      * @notice Bootstrap both contracts in one transaction
      * @param feeDistributor Address of the FeeDistributor contract
      * @param interaction Address of the Interaction contract
-     * @param timelock Address of the TimelockController (or Safe multisig)
+     * @param admin Safe multisig address (will receive DEFAULT_ADMIN_ROLE and ownership)
      * @param paramSetter Address that can set parameters
      * @dev This function should be called by the owners of both contracts (can be same owner).
      *      IMPORTANT: The owner must first call setTrustedBootstrapper(address(this)) on both contracts
@@ -128,7 +128,7 @@ contract GovernanceBootstrapper {
     function bootstrapBoth(
         address feeDistributor,
         address interaction,
-        address timelock,
+        address admin,
         address paramSetter
     ) external {
         // Verify that this bootstrapper is set as trusted for both contracts
@@ -152,8 +152,8 @@ contract GovernanceBootstrapper {
         
         // Call both - note that after first call, ownership transfers, but trustedBootstrapper
         // is already set so the second call will succeed
-        _bootstrapFeeDistributor(feeDistributor, timelock, paramSetter);
-        _bootstrapInteraction(interaction, timelock, paramSetter);
+        _bootstrapFeeDistributor(feeDistributor, admin, paramSetter);
+        _bootstrapInteraction(interaction, admin, paramSetter);
     }
 }
 

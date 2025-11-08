@@ -38,13 +38,11 @@ contract DeployScript is Script {
         // Get configuration from environment or use defaults
         address projectWallet = vm.envOr("PROJECT_WALLET", address(0x100));
         address safeMultisig = vm.envOr("SAFE_MULTISIG", address(0));
-        address usdtToken = vm.envOr("USDT_TOKEN", address(0));
         uint256 maxSupply = vm.envOr("MAX_SUPPLY", MAX_SUPPLY);
         uint256 feeWei = vm.envOr("FEE_WEI", INITIAL_FEE_WEI);
 
         require(projectWallet != address(0), "PROJECT_WALLET cannot be zero");
         require(safeMultisig != address(0), "SAFE_MULTISIG must be set (cannot be zero address)");
-        require(usdtToken != address(0), "USDT_TOKEN must be set");
         
         console.log("=== Deployment Configuration ===");
         console.log("Deployer:", deployer);
@@ -69,8 +67,6 @@ contract DeployScript is Script {
         feeDistributor = new FeeDistributor(
             projectWallet,
             feeWei,
-            usdtToken,
-            address(aioToken),
             safeMultisig // Owner set to Safe multisig in constructor
         );
         console.log("FeeDistributor deployed at:", address(feeDistributor));
@@ -106,6 +102,85 @@ contract DeployScript is Script {
     }
 
     /**
+     * @notice Deploys all contracts to local test network with simplified configuration
+     * @dev This function is designed for local testing (Anvil, Hardhat, etc.)
+     *      - Uses deployer address as owner and projectWallet
+     *      - Uses smaller test values
+     *      - No environment variables required
+     * 
+     * Usage:
+     *   forge script script/Deploy.s.sol:DeployScript --sig "deployLocal()" --rpc-url http://localhost:8545 --broadcast
+     */
+    function deployLocal() public {
+        // Get deployer address (will be used as owner and projectWallet for local testing)
+        address deployer = msg.sender;
+        
+        // Local test configuration
+        uint256 maxSupply = 1_000_000 * 1e18; // 1 million tokens for testing
+        uint256 feeWei = 1e14; // 0.0001 ETH for testing
+        
+        console.log("=== Local Test Network Deployment ===");
+        console.log("Deployer (Owner & Project Wallet):", deployer);
+        console.log("Max Supply:", maxSupply);
+        console.log("Fee Wei:", feeWei);
+        console.log("=====================================");
+
+        vm.startBroadcast(deployer);
+
+        // 1. Deploy AIOERC20 token with deployer as owner
+        console.log("Deploying AIOERC20...");
+        aioToken = new AIOERC20(maxSupply, deployer);
+        console.log("AIOERC20 deployed at:", address(aioToken));
+        console.log("AIOERC20 owner:", aioToken.owner());
+
+        // 3. Deploy FeeDistributor with deployer as owner and projectWallet
+        console.log("Deploying FeeDistributor...");
+        feeDistributor = new FeeDistributor(
+            deployer, // projectWallet
+            feeWei,
+            deployer // owner
+        );
+        console.log("FeeDistributor deployed at:", address(feeDistributor));
+        console.log("FeeDistributor owner:", feeDistributor.owner());
+
+        // 4. Deploy Interaction contract with deployer as owner
+        console.log("Deploying Interaction...");
+        interaction = new Interaction(address(feeDistributor), deployer);
+        console.log("Interaction deployed at:", address(interaction));
+        console.log("Interaction owner:", interaction.owner());
+
+        // 5. Deploy GovernanceBootstrapper (stateless helper contract, no owner)
+        console.log("Deploying GovernanceBootstrapper...");
+        bootstrapper = new GovernanceBootstrapper();
+        console.log("GovernanceBootstrapper deployed at:", address(bootstrapper));
+
+        vm.stopBroadcast();
+
+        // Output deployment addresses as JSON
+        _logLocalDeploymentAddresses();
+    }
+
+    /**
+     * @notice Logs deployment addresses in JSON format for local deployment
+     */
+    function _logLocalDeploymentAddresses() internal {
+        string memory json = string.concat(
+            "{\n",
+            '  "aioToken": "', vm.toString(address(aioToken)), '",\n',
+            '  "feeDistributor": "', vm.toString(address(feeDistributor)), '",\n',
+            '  "interaction": "', vm.toString(address(interaction)), '",\n',
+            '  "governanceBootstrapper": "', vm.toString(address(bootstrapper)), '",\n',
+            '  "owner": "', vm.toString(aioToken.owner()), '",\n',
+            '  "network": "local"\n',
+            "}\n"
+        );
+        
+        console.log("=== Local Deployment Addresses ===");
+        console.log(json);
+        console.log("=== End Local Deployment Addresses ===");
+    }
+
+    /**
      * @notice Logs deployment addresses in JSON format for easy parsing
      */
     function _logDeploymentAddresses() internal {
@@ -125,4 +200,5 @@ contract DeployScript is Script {
         console.log("=== End Deployment Addresses ===");
     }
 }
+
 

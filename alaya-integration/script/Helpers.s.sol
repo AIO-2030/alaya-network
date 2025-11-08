@@ -14,10 +14,10 @@ import {GovernanceBootstrapper} from "../src/governance/GovernanceBootstrapper.s
 contract HelperScripts is Script {
     /**
      * @notice Enables governance mode for deployed contracts
-     * @dev Set TIMELOCK_ADDRESS and PARAM_SETTER_ADDRESS in environment
+     * @dev Set SAFE_MULTISIG and PARAM_SETTER_ADDRESS in environment
      */
     function enableGovernance() public {
-        address timelock = vm.envAddress("TIMELOCK_ADDRESS");
+        address safeMultisig = vm.envAddress("SAFE_MULTISIG");
         address paramSetter = vm.envAddress("PARAM_SETTER_ADDRESS");
         address feeDistributorAddr = vm.envAddress("FEE_DISTRIBUTOR_ADDRESS");
         address interactionAddr = vm.envAddress("INTERACTION_ADDRESS");
@@ -27,10 +27,10 @@ contract HelperScripts is Script {
 
         vm.startBroadcast();
 
-        fd.enableGovernanceMode(timelock, paramSetter);
+        fd.enableGovernanceMode(safeMultisig, paramSetter);
         console.log("FeeDistributor governance enabled");
 
-        interaction.enableGovernanceMode(timelock, paramSetter);
+        interaction.enableGovernanceMode(safeMultisig, paramSetter);
         console.log("Interaction governance enabled");
 
         vm.stopBroadcast();
@@ -38,10 +38,10 @@ contract HelperScripts is Script {
 
     /**
      * @notice Uses GovernanceBootstrapper to enable governance in one transaction
-     * @dev Set all required addresses in environment
+     * @dev Set all required addresses in environment (SAFE_MULTISIG)
      */
     function bootstrapGovernance() public {
-        address timelock = vm.envAddress("TIMELOCK_ADDRESS");
+        address safeMultisig = vm.envAddress("SAFE_MULTISIG");
         address paramSetter = vm.envAddress("PARAM_SETTER_ADDRESS");
         address feeDistributorAddr = vm.envAddress("FEE_DISTRIBUTOR_ADDRESS");
         address interactionAddr = vm.envAddress("INTERACTION_ADDRESS");
@@ -56,7 +56,7 @@ contract HelperScripts is Script {
         bootstrapper.bootstrapBoth(
             feeDistributorAddr,
             interactionAddr,
-            timelock,
+            safeMultisig,
             paramSetter
         );
 
