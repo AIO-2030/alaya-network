@@ -35,6 +35,13 @@ export interface Config {
   feeWei: bigint;
   feeDistributor: Address;
   allowlistEnabled: boolean;
+  aioToken?: Address;
+  aioRewardPool?: Address;
+}
+
+export interface ClaimStatus {
+  claimed: boolean;
+  rewardAmount: bigint;
 }
 
 export interface InteractOptions {
@@ -122,12 +129,12 @@ export function getInteractionAddress(): Address | null {
  * Gets configuration from Interaction contract
  * @param provider Provider instance (viem or ethers)
  * @param interactionAddress Optional interaction contract address (uses global if not provided)
- * @returns Configuration object with feeWei and feeDistributor address
+ * @returns Configuration object with feeWei, feeDistributor, allowlistEnabled, aioToken, and aioRewardPool
  */
 export async function getConfig(
   provider: ProviderLike,
   interactionAddress?: Address
-): Promise<{ feeWei: bigint; feeDistributor: Address }> {
+): Promise<Config> {
   const address = interactionAddress || globalInteractionAddress;
   if (!address) {
     throw new Error("Interaction contract address is required. Either pass it as parameter or set it globally using setInteractionAddress()");
@@ -135,6 +142,7 @@ export async function getConfig(
   try {
     if (isViemProvider(provider)) {
       // Viem/wagmi path
+      // @ts-ignore - viem is an optional dependency
       const { createPublicClient, http } = await import("viem");
       const publicClient = createPublicClient({
         transport: http(),
@@ -143,30 +151,40 @@ export async function getConfig(
       });
 
       const result = await publicClient.readContract({
-        address: interactionAddress,
-        abi: InteractionABI,
+        address: address as `0x${string}`,
+        abi: InteractionABI as any,
         functionName: "getConfig",
-      });
+        args: [],
+      }) as [bigint, `0x${string}`, boolean, `0x${string}`, `0x${string}`];
 
       return {
-        feeWei: result[0] as bigint,
+        feeWei: result[0],
         feeDistributor: result[1] as Address,
+        allowlistEnabled: result[2] as boolean,
+        aioToken: result[3] as Address,
+        aioRewardPool: result[4] as Address,
       };
     } else {
       // Ethers v6 path
+      // @ts-ignore - ethers is an optional dependency
       const { Contract } = await import("ethers");
-      const contract = new Contract(address, InteractionABI, provider);
-      const [feeWei, feeDistributor] = await contract.getConfig();
+      const contract = new Contract(address, InteractionABI as any, provider as any);
+      const [feeWei, feeDistributor, allowlistEnabled, aioToken, aioRewardPool] = await contract.getConfig();
+
 
       return {
         feeWei: BigInt(feeWei.toString()),
         feeDistributor: feeDistributor as Address,
+        allowlistEnabled: allowlistEnabled as boolean,
+        aioToken: aioToken as Address,
+        aioRewardPool: aioRewardPool as Address,
       };
     }
   } catch (error: any) {
-    throw new Error(`获取配置失败: ${error.message || error}`);
+    throw new Error(`Failed to get config: ${error.message || error}`);
   }
 }
+
 
 /**
  * Records an interaction with ETH fee payment (simplified signature)
@@ -272,6 +290,7 @@ export async function interact(
   try {
     if (isViemProvider(provider)) {
       // Viem/wagmi path
+      // @ts-ignore - viem is an optional dependency
       const { encodeFunctionData } = await import("viem");
 
       const data = encodeFunctionData({
@@ -295,6 +314,7 @@ export async function interact(
       return hash as `0x${string}`;
     } else {
       // Ethers v6 path
+      // @ts-ignore - ethers is an optional dependency
       const { Contract } = await import("ethers");
 
       // Get signer from provider
@@ -321,6 +341,155 @@ export async function interact(
       throw new Error(`操作 "${action}" 不在允许列表中`);
     }
     throw new Error(`交互失败: ${error.message || error}`);
+  }
+}
+
+/**
+ * Claims AIO tokens for a completed interaction
+ * @param provider Provider instance (viem or ethers)
+ * @param action Action string identifier (must match the original interaction)
+ * @param timestamp Block timestamp of the original interaction (from InteractionRecorded event)
+ * @param options Optional: interactionAddress, account
+ * @returns Transaction hash
+ */
+export async function claimAIO(
+  provider: ProviderLike,
+  action: string,
+  timestamp: BigNumberish,
+  options?: { interactionAddress?: Address; account?: Address }
+): Promise<`0x${string}`> {
+  const interactionAddress = options?.interactionAddress || globalInteractionAddress;
+  if (!interactionAddress) {
+    throw new Error("Interaction contract address is required. Either pass it in options or set it globally using setInteractionAddress()");
+  }
+
+  let account: Address = options?.account || "";
+  if (!account) {
+    if (typeof provider.getAddress === "function") {
+      account = await provider.getAddress();
+    } else {
+      throw new Error("Account address is required. Please provide it in options or use a signer that has getAddress()");
+    }
+  }
+
+  const timestampBigInt = typeof timestamp === "bigint" ? timestamp : BigInt(timestamp.toString());
+
+  try {
+    if (isViemProvider(provider)) {
+      // Viem/wagmi path
+      // @ts-ignore - viem is an optional dependency
+      const { encodeFunctionData } = await import("viem");
+
+      const data = encodeFunctionData({
+        abi: InteractionABI,
+        functionName: "claimAIO",
+        args: [action, timestampBigInt],
+      });
+
+      const hash = await provider.request!({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: account,
+            to: interactionAddress,
+            data,
+          },
+        ],
+      });
+
+      return hash as `0x${string}`;
+    } else {
+      // Ethers v6 path
+      // @ts-ignore - ethers is an optional dependency
+      const { Contract } = await import("ethers");
+
+      let signer = provider;
+      if (typeof provider.getSigner === "function") {
+        signer = await provider.getSigner(account);
+      }
+
+      const contract = new Contract(interactionAddress, InteractionABI, signer);
+      const tx = await contract.claimAIO(action, timestampBigInt);
+
+      return tx.hash as `0x${string}`;
+    }
+  } catch (error: any) {
+    // Provide helpful error messages
+    if (error.message?.includes("already claimed")) {
+      throw new Error("该交互的奖励已经领取过了");
+    }
+    if (error.message?.includes("no reward configured")) {
+      throw new Error(`操作 "${action}" 没有配置奖励`);
+    }
+    if (error.message?.includes("AIO token not set")) {
+      throw new Error("AIO token 地址未设置");
+    }
+    if (error.message?.includes("AIO reward pool not set")) {
+      throw new Error("AIO 奖励池地址未设置");
+    }
+    throw new Error(`领取奖励失败: ${error.message || error}`);
+  }
+}
+
+/**
+ * Gets claim status for a specific interaction
+ * @param provider Provider instance (viem or ethers)
+ * @param user User address
+ * @param action Action string identifier
+ * @param timestamp Block timestamp of the original interaction
+ * @param interactionAddress Optional interaction contract address (uses global if not provided)
+ * @returns Claim status with claimed flag and reward amount
+ */
+export async function getClaimStatus(
+  provider: ProviderLike,
+  user: Address,
+  action: string,
+  timestamp: BigNumberish,
+  interactionAddress?: Address
+): Promise<ClaimStatus> {
+  const address = interactionAddress || globalInteractionAddress;
+  if (!address) {
+    throw new Error("Interaction contract address is required. Either pass it as parameter or set it globally using setInteractionAddress()");
+  }
+
+  const timestampBigInt = typeof timestamp === "bigint" ? timestamp : BigInt(timestamp.toString());
+
+  try {
+    if (isViemProvider(provider)) {
+      // Viem/wagmi path
+      // @ts-ignore - viem is an optional dependency
+      const { createPublicClient, http } = await import("viem");
+      const publicClient = createPublicClient({
+        transport: http(),
+        // @ts-ignore - provider might have chain info
+        chain: provider.chain || undefined,
+      });
+
+      const result = await publicClient.readContract({
+        address: address,
+        abi: InteractionABI,
+        functionName: "getClaimStatus",
+        args: [user, action, timestampBigInt],
+      });
+
+      return {
+        claimed: result[0] as boolean,
+        rewardAmount: result[1] as bigint,
+      };
+    } else {
+      // Ethers v6 path
+      // @ts-ignore - ethers is an optional dependency
+      const { Contract } = await import("ethers");
+      const contract = new Contract(address, InteractionABI, provider);
+      const [claimed, rewardAmount] = await contract.getClaimStatus(user, action, timestampBigInt);
+
+      return {
+        claimed: claimed as boolean,
+        rewardAmount: BigInt(rewardAmount.toString()),
+      };
+    }
+  } catch (error: any) {
+    throw new Error(`获取领取状态失败: ${error.message || error}`);
   }
 }
 

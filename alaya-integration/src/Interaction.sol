@@ -5,6 +5,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IFeeDistributor} from "./interfaces/IFeeDistributor.sol";
+import {IAIOERC20} from "./interfaces/IAIOERC20.sol";
 
 /**
  * @title Interaction
@@ -16,11 +17,23 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
     /// @notice FeeDistributor contract address (immutable)
     IFeeDistributor public immutable feeDistributor;
 
+    /// @notice AIO token contract address
+    IAIOERC20 public aioToken;
+
+    /// @notice AIO reward pool address (where AIO tokens are stored for distribution)
+    address public aioRewardPool;
+
     /// @notice Flag to enable/disable action allowlist feature
     bool public allowlistEnabled;
 
     /// @notice Mapping from action hash to allowlist status
     mapping(bytes32 => bool) public actionAllowlist;
+
+    /// @notice Mapping from action hash to AIO reward amount (in wei)
+    mapping(bytes32 => uint256) public actionReward;
+
+    /// @notice Mapping to track claimed interactions: user => actionHash => timestamp => claimed
+    mapping(address => mapping(bytes32 => mapping(uint256 => bool))) public claimedInteractions;
 
     /// @notice Role for setting allowlist parameters
     bytes32 public constant PARAM_SETTER_ROLE = keccak256("PARAM_SETTER_ROLE");
@@ -59,6 +72,33 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
     /// @param admin Safe multisig address (receives DEFAULT_ADMIN_ROLE)
     /// @param paramSetter Address that can set parameters
     event GovernanceModeEnabled(address indexed admin, address indexed paramSetter);
+
+    /// @notice Emitted when AIO tokens are claimed
+    /// @param user Address that claimed the tokens
+    /// @param actionHash Hash of the action string
+    /// @param action Action string identifier
+    /// @param amount Amount of AIO tokens claimed
+    /// @param timestamp Block timestamp of the original interaction
+    event AIOClaimed(
+        address indexed user,
+        bytes32 indexed actionHash,
+        string action,
+        uint256 amount,
+        uint256 timestamp
+    );
+
+    /// @notice Emitted when action reward is set
+    /// @param actionHash Hash of the action string
+    /// @param rewardAmount New reward amount in wei
+    event ActionRewardUpdated(bytes32 indexed actionHash, uint256 rewardAmount);
+
+    /// @notice Emitted when AIO token address is set
+    /// @param aioToken_ New AIO token contract address
+    event AIOTokenUpdated(address indexed aioToken_);
+
+    /// @notice Emitted when AIO reward pool address is set
+    /// @param rewardPool_ New reward pool address
+    event AIORewardPoolUpdated(address indexed rewardPool_);
 
     /**
      * @notice Deploys Interaction contract
@@ -110,12 +150,56 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         emit InteractionRecorded(msg.sender, actionHash, action, meta, block.timestamp);
     }
 
+    /**
+     * @notice Claims AIO tokens for a completed interaction
+     * @param action Action string identifier (must match the original interaction)
+     * @param timestamp Block timestamp of the original interaction (from InteractionRecorded event)
+     * @dev User must have completed an interaction with this action and timestamp.
+     *      Each interaction can only be claimed once. Protected by nonReentrant.
+     */
+    function claimAIO(string calldata action, uint256 timestamp)
+        external
+        nonReentrant
+    {
+        if (address(aioToken) == address(0)) {
+            revert("Interaction: AIO token not set");
+        }
+        if (aioRewardPool == address(0)) {
+            revert("Interaction: AIO reward pool not set");
+        }
+
+        bytes32 actionHash = keccak256(bytes(action));
+        uint256 rewardAmount = actionReward[actionHash];
+
+        if (rewardAmount == 0) {
+            revert("Interaction: no reward configured for this action");
+        }
+
+        // Check if already claimed
+        if (claimedInteractions[msg.sender][actionHash][timestamp]) {
+            revert("Interaction: already claimed");
+        }
+
+        // Mark as claimed before external call (reentrancy protection)
+        claimedInteractions[msg.sender][actionHash][timestamp] = true;
+
+        // Transfer AIO tokens from reward pool to user
+        bool success = aioToken.transferFrom(aioRewardPool, msg.sender, rewardAmount);
+        if (!success) {
+            revert("Interaction: AIO transfer failed");
+        }
+
+        emit AIOClaimed(msg.sender, actionHash, action, rewardAmount, timestamp);
+    }
+
 
     /**
      * @notice Returns configuration information
      * @return feeWei_ The minimum ETH fee in wei
      * @return feeDistributor_ The FeeDistributor contract address
      * @return allowlistEnabled_ Whether allowlist is currently enabled
+     * @return aioToken_ The AIO token contract address
+     * @return aioRewardPool_ The AIO reward pool address
      */
     function getConfig()
         external
@@ -123,13 +207,17 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         returns (
             uint256 feeWei_,
             address feeDistributor_,
-            bool allowlistEnabled_
+            bool allowlistEnabled_,
+            address aioToken_,
+            address aioRewardPool_
         )
     {
         return (
             feeDistributor.feeWei(),
             address(feeDistributor),
-            allowlistEnabled
+            allowlistEnabled,
+            address(aioToken),
+            aioRewardPool
         );
     }
 
@@ -171,6 +259,77 @@ contract Interaction is Ownable, AccessControl, ReentrancyGuard {
         bytes32 actionHash = keccak256(bytes(action));
         actionAllowlist[actionHash] = allowed;
         emit ActionAllowlistUpdated(actionHash, allowed);
+    }
+
+    /**
+     * @notice Sets the AIO token contract address
+     * @dev Only callable by owner or PARAM_SETTER_ROLE (if governance mode enabled)
+     * @param aioToken_ Address of the AIO token contract
+     */
+    function setAIOToken(address aioToken_) external {
+        _checkParamSetter();
+        if (aioToken_ == address(0)) {
+            revert("Interaction: aioToken cannot be zero address");
+        }
+        aioToken = IAIOERC20(aioToken_);
+        emit AIOTokenUpdated(aioToken_);
+    }
+
+    /**
+     * @notice Sets the AIO reward pool address
+     * @dev Only callable by owner or PARAM_SETTER_ROLE (if governance mode enabled)
+     * @param rewardPool_ Address of the reward pool (must have AIO tokens and approve Interaction contract)
+     */
+    function setAIORewardPool(address rewardPool_) external {
+        _checkParamSetter();
+        if (rewardPool_ == address(0)) {
+            revert("Interaction: rewardPool cannot be zero address");
+        }
+        aioRewardPool = rewardPool_;
+        emit AIORewardPoolUpdated(rewardPool_);
+    }
+
+    /**
+     * @notice Sets the AIO reward amount for an action
+     * @dev Only callable by owner or PARAM_SETTER_ROLE (if governance mode enabled)
+     * @param actionHash Hash of the action string (keccak256(bytes(action)))
+     * @param rewardAmount Reward amount in wei (0 to disable rewards for this action)
+     */
+    function setActionReward(bytes32 actionHash, uint256 rewardAmount) external {
+        _checkParamSetter();
+        actionReward[actionHash] = rewardAmount;
+        emit ActionRewardUpdated(actionHash, rewardAmount);
+    }
+
+    /**
+     * @notice Convenience function to set action reward by string
+     * @dev Only callable by owner or PARAM_SETTER_ROLE (if governance mode enabled)
+     * @param action The action string
+     * @param rewardAmount Reward amount in wei (0 to disable rewards for this action)
+     */
+    function setActionRewardByString(string calldata action, uint256 rewardAmount) external {
+        _checkParamSetter();
+        bytes32 actionHash = keccak256(bytes(action));
+        actionReward[actionHash] = rewardAmount;
+        emit ActionRewardUpdated(actionHash, rewardAmount);
+    }
+
+    /**
+     * @notice Checks if a user has claimed AIO for a specific interaction
+     * @param user Address of the user
+     * @param action Action string identifier
+     * @param timestamp Block timestamp of the original interaction
+     * @return claimed Whether the interaction has been claimed
+     * @return rewardAmount The reward amount for this action (0 if not configured)
+     */
+    function getClaimStatus(address user, string calldata action, uint256 timestamp)
+        external
+        view
+        returns (bool claimed, uint256 rewardAmount)
+    {
+        bytes32 actionHash = keccak256(bytes(action));
+        claimed = claimedInteractions[user][actionHash][timestamp];
+        rewardAmount = actionReward[actionHash];
     }
 
     /**

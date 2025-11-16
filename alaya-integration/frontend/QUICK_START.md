@@ -220,7 +220,8 @@ REACT_APP_INTERACTION_ADDRESS=0x...
 your-react-app/
 ├── frontend/
 │   ├── components/
-│   │   └── InteractionButton.wagmi.tsx  # 现成的组件
+│   │   ├── InteractionButton.wagmi.tsx  # 交互按钮组件
+│   │   └── ClaimButton.wagmi.tsx         # 领取奖励按钮组件
 │   └── utils/
 │       └── aio.ts                        # 核心工具函数
 ├── abi/
@@ -269,6 +270,42 @@ setInteractionAddress('0x...');
 // 之后调用 getConfig 和 interact 时可以不传 interactionAddress
 ```
 
+### `claimAIO(provider, action, timestamp, options?)`
+
+领取已完成交互的 AIO 奖励：
+
+```typescript
+// 从 InteractionRecorded 事件中获取 timestamp
+const timestamp = 1699123456; // 区块时间戳
+
+const txHash = await claimAIO(
+  walletClient,
+  'send_pixelmug',    // action 字符串（必须与原始交互匹配）
+  timestamp,          // 原始交互的区块时间戳
+  {
+    interactionAddress: '0x...',
+    account: userAddress,
+  }
+);
+```
+
+### `getClaimStatus(provider, user, action, timestamp, interactionAddress?)`
+
+查询用户是否已领取某个交互的奖励：
+
+```typescript
+const status = await getClaimStatus(
+  publicClient,
+  userAddress,        // 用户地址
+  'send_pixelmug',   // action 字符串
+  timestamp,         // 原始交互的区块时间戳
+  INTERACTION_ADDRESS
+);
+
+console.log('已领取:', status.claimed);
+console.log('奖励数量:', status.rewardAmount.toString());
+```
+
 ## 💡 最佳实践
 
 1. **Action 字符串**: 保持简短（< 20 字符）以节省 gas
@@ -303,7 +340,104 @@ setInteractionAddress('0x...');
    const hasEnoughBalance = balance && feeWei && balance.value >= feeWei;
    ```
 
+5. **领取奖励流程**:
+   ```typescript
+   // 1. 用户完成交互
+   const txHash = await interact(...);
+   
+   // 2. 等待交易确认，从事件中获取 timestamp
+   // 从 InteractionRecorded 事件中获取 timestamp
+   const timestamp = eventLog.args.timestamp;
+   
+   // 3. 用户领取奖励
+   const claimTxHash = await claimAIO(
+     walletClient,
+     action,
+     timestamp,
+     { interactionAddress, account }
+   );
+   ```
+
+6. **检查领取状态**: 在显示领取按钮前检查是否已领取
+   ```typescript
+   const status = await getClaimStatus(
+     publicClient,
+     userAddress,
+     action,
+     timestamp
+   );
+   
+   if (status.claimed) {
+     // 已领取，显示已领取状态
+   } else if (status.rewardAmount > 0n) {
+     // 可以领取，显示领取按钮
+   }
+   ```
+
+## 🎁 使用 ClaimButton 组件
+
+`ClaimButton` 是一个现成的 React 组件，用于领取 AIO 奖励：
+
+```tsx
+import { ClaimButton } from '@/frontend/components/ClaimButton.wagmi';
+
+function MyComponent() {
+  // 从 InteractionRecorded 事件中获取的 timestamp
+  const timestamp = 1699123456;
+
+  return (
+    <ClaimButton
+      action="send_pixelmug"
+      timestamp={timestamp}
+      buttonText="领取 AIO 奖励"
+      onSuccess={(hash) => {
+        console.log('领取成功:', hash);
+        alert(`奖励领取成功: ${hash}`);
+      }}
+      onError={(err) => {
+        console.error('领取失败:', err);
+        alert(`领取失败: ${err.message}`);
+      }}
+    />
+  );
+}
+```
+
+**ClaimButton 特性**：
+- ✅ 自动检查领取状态
+- ✅ 显示奖励数量
+- ✅ 已领取时自动禁用按钮
+- ✅ 显示交易确认状态
+- ✅ 完整的错误处理
+
 ## 🔍 常见问题
+
+### Q: 如何从交互事件中获取 timestamp？
+
+```typescript
+import { usePublicClient } from 'wagmi';
+import { decodeEventLog } from 'viem';
+
+// 等待交易确认后获取事件
+const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+// 查找 InteractionRecorded 事件
+const event = receipt.logs.find(log => {
+  // 根据事件签名查找
+  // InteractionRecorded 事件签名可以通过 ABI 获取
+});
+
+if (event) {
+  const decoded = decodeEventLog({
+    abi: InteractionABI,
+    data: event.data,
+    topics: event.topics,
+  });
+  
+  const timestamp = decoded.args.timestamp;
+  // 使用这个 timestamp 调用 claimAIO
+}
+```
 
 ### Q: 如何检查交易确认状态？
 
