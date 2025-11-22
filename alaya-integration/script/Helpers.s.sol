@@ -97,20 +97,5 @@ contract HelperScripts is Script {
         vm.stopBroadcast();
     }
 
-    /**
-     * @notice Adds an action to the Interaction allowlist
-     * @dev Requires caller to have PARAM_SETTER_ROLE or be owner
-     */
-    function addAllowedAction() public {
-        address interactionAddr = vm.envAddress("INTERACTION_ADDRESS");
-        string memory action = vm.envString("ALLOWED_ACTION");
-
-        Interaction interaction = Interaction(payable(interactionAddr));
-
-        vm.startBroadcast();
-        interaction.setActionAllowlistByString(action, true);
-        console.log("Action allowed:", action);
-        vm.stopBroadcast();
-    }
 }
 

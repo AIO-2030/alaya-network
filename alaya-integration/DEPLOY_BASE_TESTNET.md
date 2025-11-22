@@ -198,8 +198,8 @@ cast balance <YOUR_WALLET_ADDRESS> --rpc-url $BASE_SEPOLIA_RPC
 
 你可以使用以下任一 RPC 端点：
 
-- **Coinbase Cloud** (推荐): `https://base-sepolia.gateway.tenderly.co`
-- **Alchemy**: 在 [Alchemy](https://www.alchemy.com/) 创建应用后获取
+- **Alchemy** (推荐): `https://base-sepolia.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI`
+- **Coinbase Cloud**: `https://base-sepolia.gateway.tenderly.co`
 - **Infura**: 在 [Infura](https://www.infura.io/) 创建项目后获取
 - **公共 RPC**: `https://sepolia.base.org`
 
@@ -228,10 +228,11 @@ PROJECT_WALLET=0xYourProjectWalletAddress
 
 # Safe 多签地址（所有合约的所有者，必须设置）
 # ⚠️ 重要：部署前请确认此地址是正确的 Safe 多签地址
+# 📖 如何获取 Safe 多签地址：详见 SAFE_MULTISIG_GUIDE.md
 SAFE_MULTISIG=0xYourSafeMultisigAddress
 
-# Base Sepolia RPC 端点
-BASE_SEPOLIA_RPC=https://base-sepolia.gateway.tenderly.co
+# Base Sepolia RPC 端点（使用 Alchemy）
+BASE_SEPOLIA_RPC=https://base-sepolia.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI
 
 # Basescan API Key（用于合约验证）
 BASESCAN_API_KEY=your_basescan_api_key_here
@@ -547,29 +548,150 @@ cast send $INTERACTION_ADDRESS \
 
 #### 2.4 授权 Interaction 合约从奖励池转移 AIO Token
 
-奖励池地址需要授权 Interaction 合约可以转移 AIO token：
+⚠️ **重要**：这是关键步骤！`claimAIO` 功能需要奖励池授权 Interaction 合约才能正常工作。
+
+奖励池地址需要授权 Interaction 合约可以转移 AIO token。根据 `claimAIO` 函数的实现：
+```solidity
+aioToken.transferFrom(aioRewardPool, msg.sender, amount)
+```
+这意味着需要设置：`allowance[aioRewardPool][Interaction合约] >= amount`
+
+##### 步骤 1：检查奖励池类型和余额
+
+首先检查奖励池是 EOA（外部账户）还是智能合约：
+
+```bash
+# 检查奖励池地址是否有代码（合约）
+cast code $REWARD_POOL_ADDRESS --rpc-url $BASE_SEPOLIA_RPC
+
+# 检查奖励池的 ETH 余额（需要 ETH 支付 gas）
+cast balance $REWARD_POOL_ADDRESS --rpc-url $BASE_SEPOLIA_RPC
+```
+
+**如果余额为 0**：
+- 如果是 EOA：需要先充值 ETH 到奖励池地址（至少 0.01 ETH）
+- 如果是 Safe 多签：Safe 会自动处理 gas，但需要确保 Safe 有 ETH 余额
+
+##### 步骤 2：设置环境变量
 
 ```bash
 # 设置环境变量
 export AIO_TOKEN_ADDRESS=<deployed_aio_token_address>
 export INTERACTION_ADDRESS=<deployed_interaction_address>
 export REWARD_POOL_ADDRESS=<reward_pool_address>
-export APPROVE_AMOUNT=1000000000000000000000000000  # 例如：10 亿 token，或使用 type(uint256).max 表示无限授权
-
-# 从奖励池地址授权 Interaction 合约（需要奖励池地址的私钥或通过 Safe 多签）
-cast send $AIO_TOKEN_ADDRESS \
-  "approve(address,uint256)" \
-  $INTERACTION_ADDRESS $APPROVE_AMOUNT \
-  --rpc-url $BASE_SEPOLIA_RPC \
-  --private-key $REWARD_POOL_PRIVATE_KEY  # 或通过 Safe 多签执行
 ```
 
-**如果奖励池是 Safe 多签地址**：
-1. 在 Safe 多签界面创建交易
-2. 调用 `AIOERC20.approve(interactionAddress, amount)`
-3. 确认并执行交易
+##### 步骤 3：执行 Approve（根据奖励池类型选择方法）
 
-**建议**：如果奖励池会持续补充，可以授权一个很大的额度（如 `type(uint256).max`），避免频繁授权。
+**方法 A：如果奖励池是 EOA（外部账户）**
+
+如果您有奖励池地址的私钥：
+
+```bash
+# ⚠️ 关键：交易必须发送到 AIO Token 合约地址，不是奖励池地址！
+# ⚠️ 关键：使用奖励池地址的私钥签名
+
+# 授权最大金额（推荐，避免频繁授权）
+cast send $AIO_TOKEN_ADDRESS \
+  "approve(address,uint256)(bool)" \
+  $INTERACTION_ADDRESS \
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --private-key $REWARD_POOL_PRIVATE_KEY
+
+# 或授权固定金额（例如：10 亿 token，注意 AIO 使用 8 位小数）
+cast send $AIO_TOKEN_ADDRESS \
+  "approve(address,uint256)(bool)" \
+  $INTERACTION_ADDRESS \
+  1000000000000000000000000000 \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --private-key $REWARD_POOL_PRIVATE_KEY
+```
+
+**如果奖励池 ETH 余额不足**：
+```bash
+# 从其他账户向奖励池转账 ETH（至少 0.01 ETH）
+cast send $REWARD_POOL_ADDRESS \
+  --value $(cast --to-wei 0.01 ether) \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --private-key $OTHER_ACCOUNT_PRIVATE_KEY
+
+# 或使用测试网水龙头
+# 访问：https://www.coinbase.com/faucets/base-ethereum-goerli-faucet
+# 输入奖励池地址领取测试 ETH
+```
+
+**方法 B：如果奖励池是 Safe 多签地址（推荐）**
+
+通过 Safe 多签界面执行：
+
+1. 访问 [Safe Web 界面](https://app.safe.global/)
+2. 连接到您的 Safe 钱包（奖励池地址）
+3. 点击 "New transaction" → "Contract interaction"
+4. 设置以下参数：
+   - **To**: `$AIO_TOKEN_ADDRESS` (AIO Token 合约地址) ⚠️ **不是奖励池地址！**
+   - **Value**: `0`
+   - **Method**: `approve`
+   - **Parameters**:
+     - `spender`: `$INTERACTION_ADDRESS` (Interaction 合约地址)
+     - `amount`: `115792089237316195423570985008687907853269984665640564039457584007913129639935` (最大 uint256，或具体金额)
+5. 确认并收集足够的签名
+6. 执行交易
+
+**方法 C：使用 Safe CLI**
+
+```bash
+# 生成交易数据
+APPROVE_DATA=$(cast calldata 'approve(address,uint256)' \
+  $INTERACTION_ADDRESS \
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+# 通过 Safe 发送交易
+safe-cli send \
+  --safe $REWARD_POOL_ADDRESS \
+  --to $AIO_TOKEN_ADDRESS \
+  --data "$APPROVE_DATA" \
+  --rpc-url $BASE_SEPOLIA_RPC
+```
+
+##### 步骤 4：验证 Approve 是否成功
+
+执行 approve 后，**必须验证**是否设置成功：
+
+```bash
+# 检查 allowance
+cast call $AIO_TOKEN_ADDRESS \
+  "allowance(address,address)(uint256)" \
+  $REWARD_POOL_ADDRESS \
+  $INTERACTION_ADDRESS \
+  --rpc-url $BASE_SEPOLIA_RPC
+```
+
+**预期结果**：
+- 如果返回 `0`：approve 未成功，需要重新执行
+- 如果返回非零值：approve 成功 ✅
+
+**常见错误和解决方案**：
+
+1. **错误：`gas required exceeds allowance (0)`**
+   - **原因**：奖励池 ETH 余额为 0
+   - **解决**：向奖励池地址充值 ETH（至少 0.01 ETH）
+
+2. **错误：`execution reverted (unknown custom error)`**
+   - **原因**：approve 交易发送到了错误的地址（发送到了奖励池而不是 AIO Token）
+   - **解决**：确保 `To` 地址是 AIO Token 合约地址，不是奖励池地址
+
+3. **错误：Allowance 仍为 0**
+   - **原因**：approve 交易未成功执行
+   - **解决**：
+     - 检查交易是否已确认
+     - 确认使用了正确的私钥（EOA）或通过 Safe 多签执行
+     - 确认 spender 是 Interaction 合约地址
+
+**建议**：
+- 如果奖励池会持续补充，可以授权一个很大的额度（如 `type(uint256).max`），避免频繁授权
+- 建议使用 Safe 多签作为奖励池，更安全且便于管理
+- 执行 approve 后务必验证 allowance > 0
 
 #### 2.5 为每个 Action 设置奖励数量
 
@@ -669,6 +791,210 @@ forge script script/Helpers.s.sol:HelperScripts \
   --private-key $PRIVATE_KEY \
   --broadcast
 ```
+
+#### 启用治理模式后的变化分析
+
+启用治理模式是一个**不可逆**的操作，会永久改变合约的权限结构。以下是详细的变化：
+
+> **重要说明**：根据当前的部署脚本，合约在部署时就已经将 Safe 多签设置为 owner。因此启用治理模式时，所有权不会改变，主要变化是启用基于角色的访问控制（RBAC）系统。
+
+##### 1. **权限结构变化**
+
+**启用前：**
+- 合约所有者（Owner）：Safe 多签地址（部署时已设置）
+- 可以调用所有 `onlyOwner` 函数
+- 可以设置所有参数（手续费、项目钱包、AIO Token 等）
+- 使用简单的 owner 权限模型
+
+**启用后：**
+- 合约所有者：**仍然是 Safe 多签地址**（不变）
+- 启用基于角色的访问控制（AccessControl）
+- 参数设置权限从 `onlyOwner` 转移到 `PARAM_SETTER_ROLE`
+- 引入角色管理系统，实现权限分离
+
+##### 2. **角色分配**
+
+启用治理模式后，会创建并分配两个角色：
+
+| 角色 | 接收者 | 权限 | 说明 |
+|------|--------|------|------|
+| `DEFAULT_ADMIN_ROLE` | Safe 多签地址 | 最高管理权限，可以授予/撤销其他角色 | 与 owner 权限类似，但通过 AccessControl 管理 |
+| `PARAM_SETTER_ROLE` | 参数设置者地址 | 可以设置合约参数（手续费、钱包地址、AIO Token 等） | 新引入的角色，专门用于参数设置 |
+
+**关键变化：**
+- Safe 多签**保持** `DEFAULT_ADMIN_ROLE`（在部署时构造函数中已授予，启用治理时保持不变）
+- Safe 多签**保持** owner 身份（部署时已设置，启用治理时保持不变）
+- 参数设置者**获得** `PARAM_SETTER_ROLE`，可以独立设置参数（这是主要的新变化）
+
+##### 4. **受影响的函数**
+
+以下函数在启用治理模式后，权限检查逻辑会改变：
+
+**FeeDistributor 合约：**
+- `setProjectWallet()` - 从检查 `owner` → 检查 `PARAM_SETTER_ROLE`
+- `setFeeWei()` - 从检查 `owner` → 检查 `PARAM_SETTER_ROLE`
+
+**Interaction 合约：**
+- `setAIOToken()` - 从检查 `owner` → 检查 `PARAM_SETTER_ROLE`
+- `setAIORewardPool()` - 从检查 `owner` → 检查 `PARAM_SETTER_ROLE`
+
+**权限检查逻辑变化：**
+```solidity
+// 启用前：只有 owner（Safe 多签）可以调用
+function setFeeWei(uint256 newFeeWei) external {
+    require(msg.sender == owner(), "caller is not the owner");
+    // ...
+}
+
+// 启用后：owner 或 PARAM_SETTER_ROLE 都可以调用
+function setFeeWei(uint256 newFeeWei) external {
+    if (governanceModeEnabled) {
+        require(hasRole(PARAM_SETTER_ROLE, msg.sender), "caller does not have PARAM_SETTER_ROLE");
+    } else {
+        require(msg.sender == owner(), "caller is not the owner");
+    }
+    // ...
+}
+```
+
+##### 4. **关键变化总结**
+
+✅ **会发生的：**
+- `governanceModeEnabled` 标志设置为 `true`（永久）
+- Safe 多签**保持** `DEFAULT_ADMIN_ROLE` 和 owner 身份（部署时已拥有，启用治理时保持不变）
+- 参数设置者**获得** `PARAM_SETTER_ROLE`（这是主要的新变化）
+- 参数设置函数从检查 `owner` 改为检查 `PARAM_SETTER_ROLE`（启用治理后，即使 Safe 多签是 owner，也需要通过 `PARAM_SETTER_ROLE` 来设置参数）
+- 启用基于角色的访问控制系统
+
+❌ **不会发生的：**
+- 所有权不会改变（已经是 Safe 多签）
+- Safe 多签仍然可以调用 `onlyOwner` 函数（因为仍然是 owner）
+- 无法撤销治理模式（一旦启用，永久生效）
+
+⚠️ **重要限制：**
+- `setTrustedBootstrapper()` 在治理模式启用后**无法再调用**
+- 治理模式只能启用**一次**，无法重复启用
+- **关键变化**：启用后，参数设置函数（`setFeeWei`, `setProjectWallet`, `setAIOToken`, `setAIORewardPool`）**不再检查 owner**，而是**只检查 `PARAM_SETTER_ROLE`**。这意味着：
+  - 即使 Safe 多签是 owner，如果没有 `PARAM_SETTER_ROLE`，也无法设置参数
+  - Safe 多签需要先给自己授予 `PARAM_SETTER_ROLE`，或者通过参数设置者来设置参数
+
+##### 5. **启用后的操作流程**
+
+启用治理模式后，管理操作分为两类：
+
+1. **设置参数**：由 `PARAM_SETTER_ROLE` 持有者执行
+   ```solidity
+   // 需要 PARAM_SETTER_ROLE（启用治理后，不再检查 owner）
+   feeDistributor.setFeeWei(newFee);
+   interaction.setAIOToken(tokenAddress);
+   interaction.setAIORewardPool(rewardPoolAddress);
+   ```
+   > **⚠️ 重要**：启用治理模式后，参数设置函数**只检查 `PARAM_SETTER_ROLE`，不再检查 owner**。这意味着：
+   > - 即使 Safe 多签是 owner，如果没有 `PARAM_SETTER_ROLE`，也无法设置参数
+   > - Safe 多签需要先给自己授予 `PARAM_SETTER_ROLE`，或者通过参数设置者来设置参数
+   > - 建议在启用治理模式时，将 Safe 多签也设置为参数设置者，或者确保参数设置者地址可信
+
+2. **角色管理**：由 Safe 多签（`DEFAULT_ADMIN_ROLE`）执行
+   ```solidity
+   // 需要 DEFAULT_ADMIN_ROLE
+   interaction.grantRole(PARAM_SETTER_ROLE, newParamSetter);
+   interaction.revokeRole(PARAM_SETTER_ROLE, oldParamSetter);
+   ```
+
+3. **所有权操作**：由 Safe 多签（owner）执行
+   ```solidity
+   // 需要 owner（Safe 多签）
+   interaction.transferOwnership(newOwner);
+   interaction.renounceOwnership();
+   ```
+
+**权限分离的优势：**
+- 参数设置可以由专门的地址（`PARAM_SETTER_ROLE`）执行，无需 Safe 多签批准
+- Safe 多签专注于角色管理和关键操作
+- 降低操作成本（参数设置不需要多签确认）
+
+##### 6. **实际变化总结（owner 已是 Safe 多签的情况）**
+
+由于合约在部署时已经将 Safe 多签设置为 owner，启用治理模式的实际变化如下：
+
+| 项目 | 启用前 | 启用后 | 变化 |
+|------|--------|--------|------|
+| **Owner** | Safe 多签 | Safe 多签 | ✅ 无变化 |
+| **DEFAULT_ADMIN_ROLE** | Safe 多签（构造函数中已授予） | Safe 多签 | ✅ 无变化 |
+| **PARAM_SETTER_ROLE** | 不存在 | 参数设置者地址 | ✅ 新增 |
+| **参数设置权限** | 只有 owner（Safe 多签） | 只有 `PARAM_SETTER_ROLE` | ⚠️ **关键变化** |
+| **governanceModeEnabled** | `false` | `true` | ✅ 永久启用 |
+
+**核心变化：**
+启用治理模式后，参数设置函数（`setFeeWei`, `setProjectWallet`, `setAIOToken`, `setAIORewardPool`）的权限检查从：
+- **启用前**：`msg.sender == owner()`（只有 Safe 多签可以）
+- **启用后**：`hasRole(PARAM_SETTER_ROLE, msg.sender)`（只有 `PARAM_SETTER_ROLE` 持有者可以）
+
+**这意味着：**
+- ✅ Safe 多签仍然是 owner 和 `DEFAULT_ADMIN_ROLE`，可以管理角色和所有权
+- ⚠️ **但 Safe 多签无法再直接设置参数**（除非也拥有 `PARAM_SETTER_ROLE`）
+- ✅ 参数设置可以由 `PARAM_SETTER_ROLE` 持有者独立执行，无需 Safe 多签批准
+- ✅ Safe 多签可以通过 `grantRole`/`revokeRole` 管理参数设置者
+
+##### 7. **安全考虑**
+
+- ✅ **权限分离**：参数设置和角色管理分离，降低单点风险
+- ✅ **灵活管理**：参数设置可以由专门地址执行，无需多签确认，降低操作成本
+- ✅ **角色控制**：Safe 多签通过 `DEFAULT_ADMIN_ROLE` 可以灵活管理角色分配
+- ⚠️ **不可逆性**：一旦启用，无法回退到简单的 owner 模式
+- ⚠️ **前置条件**：启用前确保参数设置者地址可信（它将获得参数设置权限）
+- ⚠️ **权限变化**：启用后，Safe 多签作为 owner 也无法直接设置参数，必须通过 `PARAM_SETTER_ROLE`
+- 💡 **建议**：如果希望 Safe 多签也能设置参数，可以在启用治理后，给 Safe 多签也授予 `PARAM_SETTER_ROLE`
+
+##### 8. **验证治理模式是否已启用**
+
+```bash
+# 检查 FeeDistributor 治理模式
+cast call <FEE_DISTRIBUTOR_ADDRESS> "governanceModeEnabled()(bool)" --rpc-url $BASE_SEPOLIA_RPC
+
+# 检查 Interaction 治理模式
+cast call <INTERACTION_ADDRESS> "governanceModeEnabled()(bool)" --rpc-url $BASE_SEPOLIA_RPC
+
+# 检查角色分配
+cast call <INTERACTION_ADDRESS> "hasRole(bytes32,address)(bool)" \
+  $(cast sig "DEFAULT_ADMIN_ROLE()") \
+  <SAFE_MULTISIG_ADDRESS> \
+  --rpc-url $BASE_SEPOLIA_RPC
+
+# 检查参数设置者角色
+cast call <INTERACTION_ADDRESS> "hasRole(bytes32,address)(bool)" \
+  $(cast sig "PARAM_SETTER_ROLE()") \
+  <PARAM_SETTER_ADDRESS> \
+  --rpc-url $BASE_SEPOLIA_RPC
+```
+
+##### 9. **可选：给 Safe 多签也授予 PARAM_SETTER_ROLE**
+
+如果希望 Safe 多签既能管理角色，也能设置参数，可以在启用治理模式后，给 Safe 多签也授予 `PARAM_SETTER_ROLE`：
+
+```bash
+# 通过 Safe 多签执行（需要多签批准）
+cast send <INTERACTION_ADDRESS> \
+  "grantRole(bytes32,address)" \
+  $(cast sig "PARAM_SETTER_ROLE()") \
+  <SAFE_MULTISIG_ADDRESS> \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --private-key $SAFE_MULTISIG_PRIVATE_KEY
+
+# 同样给 FeeDistributor 也授予
+cast send <FEE_DISTRIBUTOR_ADDRESS> \
+  "grantRole(bytes32,address)" \
+  $(cast sig "PARAM_SETTER_ROLE()") \
+  <SAFE_MULTISIG_ADDRESS> \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --private-key $SAFE_MULTISIG_PRIVATE_KEY
+```
+
+这样配置后：
+- ✅ Safe 多签拥有 `DEFAULT_ADMIN_ROLE`：可以管理角色
+- ✅ Safe 多签拥有 `PARAM_SETTER_ROLE`：可以设置参数
+- ✅ Safe 多签是 owner：可以执行所有权操作
+- ✅ 参数设置者拥有 `PARAM_SETTER_ROLE`：也可以设置参数（无需多签批准）
 
 或者使用 GovernanceBootstrapper（单笔交易）：
 
@@ -771,7 +1097,7 @@ forge script script/Helpers.s.sol:HelperScripts \
 ### Base Sepolia Testnet
 
 - **Chain ID**: 84532
-- **RPC URL**: `https://sepolia.base.org` 或使用其他提供商
+- **RPC URL**: `https://base-sepolia.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI` (Alchemy) 或 `https://sepolia.base.org` (公共 RPC)
 - **区块浏览器**: [BaseScan Sepolia](https://sepolia.basescan.org/)
 - **水龙头**: [Coinbase Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet)
 

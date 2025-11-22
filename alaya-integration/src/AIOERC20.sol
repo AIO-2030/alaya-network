@@ -44,6 +44,15 @@ contract AIOERC20 is ERC20, ERC20Permit, Ownable {
     }
 
     /**
+     * @notice Returns the number of decimals used to get its user representation
+     * @dev Override to use 8 decimals instead of the default 18
+     * @return The number of decimals (8)
+     */
+    function decimals() public view virtual override returns (uint8) {
+        return 8;
+    }
+
+    /**
      * @notice Mints tokens to the specified address
      * @dev Only callable by the owner. Reverts if minting would exceed MAX_SUPPLY
      * @param to Address to receive the minted tokens

@@ -65,7 +65,7 @@ contract FeeDistributorTest is Test {
 
     // ============ Deployment Tests ============
 
-    function test_Deployment() public view {
+    function test_Deployment() public {
         assertEq(feeDistributor.projectWallet(), projectWallet);
         assertEq(feeDistributor.feeWei(), INITIAL_FEE_WEI);
         assertEq(feeDistributor.owner(), owner);

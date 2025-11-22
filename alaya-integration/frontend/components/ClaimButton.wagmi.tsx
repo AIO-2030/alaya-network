@@ -7,17 +7,16 @@
 
 import { useState, useEffect } from 'react';
 import { useAccount, useWalletClient, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
-import { claimAIO, getClaimStatus, setInteractionAddress } from '../utils/aio';
+import { claimAIO, setInteractionAddress } from '../utils/aio';
+import { diagnoseClaimAIO } from '../utils/diagnoseClaim';
 import type { Address } from '../utils/aio';
 
 // 配置：Interaction 合约地址（应该从环境变量或配置文件中读取）
 const INTERACTION_ADDRESS = process.env.NEXT_PUBLIC_INTERACTION_ADDRESS as Address;
 
 interface ClaimButtonProps {
-  /** Action 字符串（必须与原始交互匹配） */
-  action: string;
-  /** 原始交互的区块时间戳（从 InteractionRecorded 事件中获取） */
-  timestamp: bigint | number | string;
+  /** 要领取的 AIO token 数量（以 wei 为单位） */
+  amount: bigint | number | string;
   /** 自定义按钮文本 */
   buttonText?: string;
   /** 是否禁用按钮 */
@@ -26,8 +25,6 @@ interface ClaimButtonProps {
   onSuccess?: (txHash: `0x${string}`) => void;
   /** 领取失败回调 */
   onError?: (error: Error) => void;
-  /** 是否自动检查领取状态 */
-  autoCheckStatus?: boolean;
 }
 
 /**
@@ -36,21 +33,18 @@ interface ClaimButtonProps {
  * 使用示例：
  * ```tsx
  * <ClaimButton
- *   action="send_pixelmug"
- *   timestamp={1699123456}
+ *   amount="150000000000000000000" // 150 AIO tokens (in wei)
  *   onSuccess={(hash) => console.log("领取成功:", hash)}
  *   onError={(err) => console.error("领取失败:", err)}
  * />
  * ```
  */
 export function ClaimButton({
-  action,
-  timestamp,
+  amount,
   buttonText = '领取 AIO 奖励',
   disabled = false,
   onSuccess,
   onError,
-  autoCheckStatus = true,
 }: ClaimButtonProps) {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
@@ -59,7 +53,6 @@ export function ClaimButton({
   const [isLoading, setIsLoading] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [claimStatus, setClaimStatus] = useState<{ claimed: boolean; rewardAmount: bigint } | null>(null);
 
   // 设置全局 Interaction 地址
   useEffect(() => {
@@ -68,29 +61,6 @@ export function ClaimButton({
     }
   }, []);
 
-  // 自动检查领取状态
-  useEffect(() => {
-    if (!autoCheckStatus || !publicClient || !address || !INTERACTION_ADDRESS) return;
-
-    const checkStatus = async () => {
-      try {
-        const status = await getClaimStatus(
-          publicClient,
-          address,
-          action,
-          timestamp,
-          INTERACTION_ADDRESS
-        );
-        setClaimStatus(status);
-      } catch (err: any) {
-        console.error('检查领取状态失败:', err);
-        // 不设置错误，因为这只是状态检查
-      }
-    };
-
-    checkStatus();
-  }, [publicClient, address, action, timestamp, autoCheckStatus]);
-
   // 等待交易确认
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash: txHash || undefined,
@@ -98,13 +68,19 @@ export function ClaimButton({
 
   // 处理领取
   const handleClaim = async () => {
-    if (!walletClient || !address || !publicClient) {
+    if (!walletClient || !address) {
       setError('请先连接钱包');
       return;
     }
 
     if (!INTERACTION_ADDRESS) {
       setError('Interaction 合约地址未配置');
+      return;
+    }
+
+    const amountBigInt = typeof amount === "bigint" ? amount : BigInt(amount.toString());
+    if (amountBigInt === 0n) {
+      setError('领取数量不能为零');
       return;
     }
 
@@ -115,8 +91,7 @@ export function ClaimButton({
     try {
       const hash = await claimAIO(
         walletClient,
-        action,
-        timestamp,
+        amountBigInt,
         {
           interactionAddress: INTERACTION_ADDRESS,
           account: address,
@@ -125,16 +100,39 @@ export function ClaimButton({
 
       setTxHash(hash);
       onSuccess?.(hash);
-      
-      // 更新状态为已领取
-      if (claimStatus) {
-        setClaimStatus({ ...claimStatus, claimed: true });
-      }
     } catch (err: any) {
       const errorMessage = err.message || '领取失败';
       setError(errorMessage);
       onError?.(err);
       console.error('领取失败:', err);
+      
+      // 如果错误是 "missing revert data"，尝试诊断问题
+      if (err.error?.code === 'CALL_EXCEPTION' || err.message?.includes('missing revert data')) {
+        console.log('检测到 CALL_EXCEPTION，开始诊断...');
+        try {
+          const diagnosis = await diagnoseClaimAIO(
+            publicClient as any,
+            INTERACTION_ADDRESS,
+            amountBigInt,
+            address
+          );
+          console.log('诊断结果:', diagnosis);
+          
+          // 如果有明确的错误信息，更新错误提示
+          const failedChecks = diagnosis.checks.filter(c => !c.passed);
+          if (failedChecks.length > 0) {
+            const detailedError = failedChecks.map(c => c.message).join('; ');
+            setError(`${errorMessage}\n\n诊断信息: ${detailedError}`);
+          }
+          
+          // 输出建议到控制台
+          if (diagnosis.suggestions.length > 0) {
+            console.log('修复建议:', diagnosis.suggestions);
+          }
+        } catch (diagnosisError) {
+          console.error('诊断过程失败:', diagnosisError);
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -155,26 +153,16 @@ export function ClaimButton({
     disabled || 
     isLoading || 
     isConfirming || 
-    !isConnected || 
-    (claimStatus?.claimed === true);
+    !isConnected;
 
-  // 如果已领取，显示已领取状态
-  if (claimStatus?.claimed === true) {
-    return (
-      <div className="claim-button-container">
-        <div style={{ padding: '10px', backgroundColor: '#e8f5e9', borderRadius: '4px', color: '#2e7d32' }}>
-          ✓ 奖励已领取 ({formatReward(claimStatus.rewardAmount)})
-        </div>
-      </div>
-    );
-  }
+  const amountBigInt = typeof amount === "bigint" ? amount : BigInt(amount.toString());
 
   return (
     <div className="claim-button-container">
       {/* 奖励信息 */}
-      {claimStatus && claimStatus.rewardAmount > 0n && (
+      {amountBigInt > 0n && (
         <div className="reward-info" style={{ marginBottom: '8px', fontSize: '14px', color: '#666' }}>
-          可领取奖励: {formatReward(claimStatus.rewardAmount)}
+          可领取奖励: {formatReward(amountBigInt)}
         </div>
       )}
 
@@ -226,22 +214,21 @@ export function ClaimButton({
  * 使用示例组件
  */
 export function ClaimButtonExample() {
-  // 示例：从交互事件中获取的 timestamp
-  const exampleTimestamp = Math.floor(Date.now() / 1000); // 当前时间戳（示例）
+  // 示例：150 AIO tokens (150 * 10^18 wei)
+  const exampleAmount = BigInt("150000000000000000000");
 
   return (
     <div style={{ padding: '20px' }}>
       <h2>领取 AIO 奖励示例</h2>
 
-      {/* 示例：领取 send_pixelmug 的奖励 */}
+      {/* 示例：领取 150 AIO tokens */}
       <div style={{ marginBottom: '20px' }}>
-        <h3>示例：领取 send_pixelmug 奖励</h3>
+        <h3>示例：领取 150 AIO tokens</h3>
         <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-          时间戳: {exampleTimestamp} (从 InteractionRecorded 事件中获取)
+          数量: 150 AIO (150000000000000000000 wei)
         </p>
         <ClaimButton
-          action="send_pixelmug"
-          timestamp={exampleTimestamp}
+          amount={exampleAmount}
           buttonText="领取奖励"
           onSuccess={(hash) => {
             console.log('领取成功:', hash);

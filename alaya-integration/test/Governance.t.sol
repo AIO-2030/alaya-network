@@ -105,8 +105,9 @@ contract GovernanceTest is Test {
         feeDistributor.setFeeWei(2e15);
         assertEq(feeDistributor.feeWei(), 2e15);
 
-        interaction.setAllowlistEnabled(true);
-        assertTrue(interaction.allowlistEnabled());
+        // Owner can set AIO token
+        interaction.setAIOToken(address(aioToken));
+        assertEq(address(interaction.aioToken()), address(aioToken));
     }
 
     function test_RoleAssignment_BeforeGovernance_ParamSetterCannotSet() public {
@@ -117,7 +118,7 @@ contract GovernanceTest is Test {
 
         vm.prank(paramSetter);
         vm.expectRevert("Interaction: caller is not the owner");
-        interaction.setAllowlistEnabled(true);
+        interaction.setAIOToken(address(aioToken));
     }
 
     function test_EnableGovernanceMode_FeeDistributor() public {
@@ -196,13 +197,8 @@ contract GovernanceTest is Test {
         assertEq(feeDistributor.feeWei(), 3e15);
 
         vm.prank(paramSetter);
-        interaction.setAllowlistEnabled(true);
-        assertTrue(interaction.allowlistEnabled());
-
-        bytes32 actionHash = keccak256(bytes("test_action"));
-        vm.prank(paramSetter);
-        interaction.setActionAllowlist(actionHash, true);
-        assertTrue(interaction.actionAllowlist(actionHash));
+        interaction.setAIOToken(address(aioToken));
+        assertEq(address(interaction.aioToken()), address(aioToken));
     }
 
     function test_AfterGovernanceMode_OwnerCannotSetDirectly() public {
@@ -215,7 +211,7 @@ contract GovernanceTest is Test {
         feeDistributor.setFeeWei(2e15);
 
         vm.expectRevert("Interaction: caller does not have PARAM_SETTER_ROLE");
-        interaction.setAllowlistEnabled(true);
+        interaction.setAIOToken(address(aioToken));
     }
 
     function test_AfterGovernanceMode_UnauthorizedCannotSet() public {
@@ -230,7 +226,7 @@ contract GovernanceTest is Test {
 
         vm.prank(unauthorized);
         vm.expectRevert("Interaction: caller does not have PARAM_SETTER_ROLE");
-        interaction.setAllowlistEnabled(true);
+        interaction.setAIOToken(address(aioToken));
     }
 
     function test_AfterGovernanceMode_TimelockHasAdminRole() public {
@@ -330,19 +326,14 @@ contract GovernanceTest is Test {
         assertEq(feeDistributor.projectWallet(), address(0x200));
 
         vm.prank(paramSetter);
-        interaction.setAllowlistEnabled(true);
-        assertTrue(interaction.allowlistEnabled());
+        interaction.setAIOToken(address(aioToken));
+        assertEq(address(interaction.aioToken()), address(aioToken));
 
         // 4. Owner cannot set parameters anymore
         vm.expectRevert("FeeDistributor: caller does not have PARAM_SETTER_ROLE");
         feeDistributor.setFeeWei(2e15);
 
-        // 5. Normal interaction still works (allowlist is enabled but action is not allowlisted)
-        // First, allow the action or disable allowlist
-        bytes32 actionHash = keccak256(bytes("test_action"));
-        vm.prank(paramSetter);
-        interaction.setActionAllowlist(actionHash, true);
-
+        // 5. Normal interaction still works
         vm.deal(user1, 10 ether);
         vm.prank(user1);
         interaction.interact{value: INITIAL_FEE_WEI}("test_action", "meta");
@@ -376,9 +367,8 @@ contract GovernanceTest is Test {
         assertEq(feeDistributor.feeWei(), 5e15);
 
         vm.prank(paramSetter);
-        bytes32 actionHash = keccak256(bytes("allowed_action"));
-        interaction.setActionAllowlist(actionHash, true);
-        assertTrue(interaction.actionAllowlist(actionHash));
+        interaction.setAIOToken(address(aioToken));
+        assertEq(address(interaction.aioToken()), address(aioToken));
 
         // Owner cannot modify settings
         vm.expectRevert("FeeDistributor: caller does not have PARAM_SETTER_ROLE");
@@ -405,7 +395,7 @@ contract GovernanceTest is Test {
 
         vm.prank(originalOwner);
         vm.expectRevert();
-        interaction.setAllowlistEnabled(true);
+        interaction.setAIOToken(address(aioToken));
     }
 
     function test_AfterGovernanceMode_OnlyTimelockCanCallOnlyOwnerFunctions() public {
@@ -640,8 +630,8 @@ contract GovernanceTest is Test {
             uint256(10e15)
         );
         payloads[1] = abi.encodeWithSelector(
-            Interaction.setAllowlistEnabled.selector,
-            true
+            Interaction.setAIOToken.selector,
+            address(aioToken)
         );
 
         bytes32 salt = keccak256("batch-test-salt");
@@ -673,7 +663,7 @@ contract GovernanceTest is Test {
 
         // Verify both operations were executed
         assertEq(feeDistributor.feeWei(), 10e15);
-        assertTrue(interaction.allowlistEnabled());
+        assertEq(address(interaction.aioToken()), address(aioToken));
     }
 
     function test_TimelockController_CannotExecuteBeforeDelay() public {

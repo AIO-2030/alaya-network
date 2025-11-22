@@ -159,11 +159,35 @@ forge script script/Deploy.s.sol:DeployScript \
 
 #### Base Sepolia Testnet
 
+**方法 1: 使用部署脚本（推荐）**
+
+```shell
+./scripts/deploy-testnet.sh
+```
+
+**方法 2: 手动部署命令**
+
 ```shell
 forge script script/Deploy.s.sol --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast --verify --etherscan-api-key $BASESCAN_API_KEY
 ```
 
 #### Base Mainnet
+
+⚠️ **警告**: 主网部署涉及真实资金，请务必谨慎操作！
+
+**方法 1: 使用部署脚本（推荐）**
+
+```shell
+./scripts/deploy-mainnet.sh
+```
+
+部署脚本会进行多重安全检查，包括：
+- 环境变量检查
+- 主网部署安全检查清单
+- 模拟部署验证
+- 最终确认步骤
+
+**方法 2: 手动部署命令**
 
 ```shell
 forge script script/Deploy.s.sol --rpc-url $BASE_RPC --private-key $PRIVATE_KEY --broadcast --verify --etherscan-api-key $BASESCAN_API_KEY
@@ -178,9 +202,12 @@ Create a `.env` file based on `.env.example`:
 - `SAFE_MULTISIG`: **REQUIRED** - Address of Safe multisig that will own ALL contracts (AIOERC20, FeeDistributor, Interaction). 
   - ⚠️ **IMPORTANT**: Before mainnet deployment, verify this address is the correct Safe multisig address
   - All contracts are deployed with Safe multisig as owner in constructor - no transferOwnership needed
+  - 📖 **如何获取**: 详见 [SAFE_MULTISIG_GUIDE.md](./SAFE_MULTISIG_GUIDE.md) - 详细说明如何创建 Safe 多签钱包并获取地址
 - `USDT_TOKEN`: USDT token address on Base
-- `BASE_SEPOLIA_RPC`: Base Sepolia RPC endpoint
-- `BASE_RPC`: Base Mainnet RPC endpoint
+- `BASE_SEPOLIA_RPC`: Base Sepolia RPC endpoint (默认: Alchemy RPC)
+  - 默认值: `https://base-sepolia.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI`
+- `BASE_RPC`: Base Mainnet RPC endpoint (默认: Alchemy RPC)
+  - 默认值: `https://base-mainnet.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI`
 - `BASESCAN_API_KEY`: API key for Basescan verification
   - 获取方式：
     1. 访问 [BaseScan 官网](https://basescan.org/)

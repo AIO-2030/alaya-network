@@ -210,8 +210,8 @@ cast balance <YOUR_WALLET_ADDRESS> --rpc-url $BASE_RPC
 
 你可以使用以下任一 RPC 端点：
 
-- **Base 官方 RPC** (推荐): `https://mainnet.base.org`
-- **Alchemy**: 在 [Alchemy](https://www.alchemy.com/) 创建应用后获取 Base Mainnet RPC
+- **Alchemy** (推荐): `https://base-mainnet.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI`
+- **Base 官方 RPC**: `https://mainnet.base.org`
 - **Infura**: 在 [Infura](https://www.infura.io/) 创建项目后获取 Base Mainnet RPC
 - **QuickNode**: 在 [QuickNode](https://www.quicknode.com/) 创建端点
 - **公共 RPC**: `https://mainnet.base.org`（可能有速率限制）
@@ -245,10 +245,11 @@ PROJECT_WALLET=0xYourProjectWalletAddress
 # Safe 多签地址（所有合约的所有者，必须设置）
 # ⚠️ 极其重要：部署前请多次确认此地址是正确的 Safe 多签地址
 # ⚠️ 主网部署后无法更改，请务必确认！
+# 📖 如何获取 Safe 多签地址：详见 SAFE_MULTISIG_GUIDE.md
 SAFE_MULTISIG=0xYourSafeMultisigAddress
 
-# Base 主网 RPC 端点
-BASE_RPC=https://mainnet.base.org
+# Base 主网 RPC 端点（使用 Alchemy）
+BASE_RPC=https://base-mainnet.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI
 
 # Basescan API Key（用于合约验证）
 BASESCAN_API_KEY=your_basescan_api_key_here
@@ -636,25 +637,151 @@ cast send $INTERACTION_ADDRESS \
 
 #### 2.4 授权 Interaction 合约从奖励池转移 AIO Token
 
-奖励池地址需要授权 Interaction 合约可以转移 AIO token：
+⚠️ **重要**：这是关键步骤！`claimAIO` 功能需要奖励池授权 Interaction 合约才能正常工作。
+
+奖励池地址需要授权 Interaction 合约可以转移 AIO token。根据 `claimAIO` 函数的实现：
+```solidity
+aioToken.transferFrom(aioRewardPool, msg.sender, amount)
+```
+这意味着需要设置：`allowance[aioRewardPool][Interaction合约] >= amount`
+
+##### 步骤 1：检查奖励池类型和余额
+
+首先检查奖励池是 EOA（外部账户）还是智能合约：
+
+```bash
+# 检查奖励池地址是否有代码（合约）
+cast code $REWARD_POOL_ADDRESS --rpc-url $BASE_RPC
+
+# 检查奖励池的 ETH 余额（需要 ETH 支付 gas）
+cast balance $REWARD_POOL_ADDRESS --rpc-url $BASE_RPC
+```
+
+**如果余额不足**：
+- 如果是 EOA：需要先充值 ETH 到奖励池地址（至少 0.01 ETH，建议 0.05-0.1 ETH）
+- 如果是 Safe 多签：Safe 会自动处理 gas，但需要确保 Safe 有足够的 ETH 余额
+
+##### 步骤 2：设置环境变量
 
 ```bash
 # 设置环境变量
 export AIO_TOKEN_ADDRESS=<deployed_aio_token_address>
 export INTERACTION_ADDRESS=<deployed_interaction_address>
 export REWARD_POOL_ADDRESS=<reward_pool_address>
-export APPROVE_AMOUNT=1000000000000000000000000000  # 例如：10 亿 token，或使用 type(uint256).max 表示无限授权
 ```
 
-**通过 Safe 多签执行**（推荐）：
-1. 在 Safe 多签界面创建交易（如果奖励池是 Safe 多签）
-2. 调用 `AIOERC20.approve(interactionAddress, amount)`
-3. **仔细检查**：确认 Interaction 地址和授权额度正确
-4. 确认并执行交易
+##### 步骤 3：执行 Approve（根据奖励池类型选择方法）
 
-**建议**：
+**方法 A：如果奖励池是 EOA（外部账户）**
+
+⚠️ **主网安全警告**：主网操作涉及真实资金，建议使用 Safe 多签而不是 EOA。
+
+如果您有奖励池地址的私钥：
+
+```bash
+# ⚠️ 关键：交易必须发送到 AIO Token 合约地址，不是奖励池地址！
+# ⚠️ 关键：使用奖励池地址的私钥签名
+
+# 授权最大金额（推荐，避免频繁授权）
+cast send $AIO_TOKEN_ADDRESS \
+  "approve(address,uint256)(bool)" \
+  $INTERACTION_ADDRESS \
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
+  --rpc-url $BASE_RPC \
+  --private-key $REWARD_POOL_PRIVATE_KEY
+
+# 或授权固定金额（例如：10 亿 token，注意 AIO 使用 8 位小数）
+cast send $AIO_TOKEN_ADDRESS \
+  "approve(address,uint256)(bool)" \
+  $INTERACTION_ADDRESS \
+  1000000000000000000000000000 \
+  --rpc-url $BASE_RPC \
+  --private-key $REWARD_POOL_PRIVATE_KEY
+```
+
+**如果奖励池 ETH 余额不足**：
+```bash
+# 从其他账户向奖励池转账 ETH（至少 0.01 ETH，建议 0.05-0.1 ETH）
+cast send $REWARD_POOL_ADDRESS \
+  --value $(cast --to-wei 0.05 ether) \
+  --rpc-url $BASE_RPC \
+  --private-key $OTHER_ACCOUNT_PRIVATE_KEY
+```
+
+**方法 B：如果奖励池是 Safe 多签地址（强烈推荐用于主网）**
+
+通过 Safe 多签界面执行：
+
+1. 访问 [Safe Web 界面](https://app.safe.global/)
+2. 连接到您的 Safe 钱包（奖励池地址）
+3. 点击 "New transaction" → "Contract interaction"
+4. 设置以下参数：
+   - **To**: `$AIO_TOKEN_ADDRESS` (AIO Token 合约地址) ⚠️ **不是奖励池地址！**
+   - **Value**: `0`
+   - **Method**: `approve`
+   - **Parameters**:
+     - `spender`: `$INTERACTION_ADDRESS` (Interaction 合约地址)
+     - `amount`: `115792089237316195423570985008687907853269984665640564039457584007913129639935` (最大 uint256，或具体金额)
+5. **仔细检查**：确认所有地址和参数正确
+6. 确认并收集足够的签名
+7. 执行交易
+
+**方法 C：使用 Safe CLI**
+
+```bash
+# 生成交易数据
+APPROVE_DATA=$(cast calldata 'approve(address,uint256)' \
+  $INTERACTION_ADDRESS \
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+# 通过 Safe 发送交易
+safe-cli send \
+  --safe $REWARD_POOL_ADDRESS \
+  --to $AIO_TOKEN_ADDRESS \
+  --data "$APPROVE_DATA" \
+  --rpc-url $BASE_RPC
+```
+
+##### 步骤 4：验证 Approve 是否成功
+
+执行 approve 后，**必须验证**是否设置成功：
+
+```bash
+# 检查 allowance
+cast call $AIO_TOKEN_ADDRESS \
+  "allowance(address,address)(uint256)" \
+  $REWARD_POOL_ADDRESS \
+  $INTERACTION_ADDRESS \
+  --rpc-url $BASE_RPC
+```
+
+**预期结果**：
+- 如果返回 `0`：approve 未成功，需要重新执行
+- 如果返回非零值：approve 成功 ✅
+
+**常见错误和解决方案**：
+
+1. **错误：`gas required exceeds allowance (0)`**
+   - **原因**：奖励池 ETH 余额不足
+   - **解决**：向奖励池地址充值 ETH（至少 0.01 ETH，建议 0.05-0.1 ETH）
+
+2. **错误：`execution reverted (unknown custom error)`**
+   - **原因**：approve 交易发送到了错误的地址（发送到了奖励池而不是 AIO Token）
+   - **解决**：确保 `To` 地址是 AIO Token 合约地址，不是奖励池地址
+
+3. **错误：Allowance 仍为 0**
+   - **原因**：approve 交易未成功执行
+   - **解决**：
+     - 检查交易是否已确认
+     - 确认使用了正确的私钥（EOA）或通过 Safe 多签执行
+     - 确认 spender 是 Interaction 合约地址
+
+**主网安全建议**：
+- ⚠️ **强烈建议使用 Safe 多签作为奖励池**，更安全且便于管理
 - 如果奖励池会持续补充，可以授权一个很大的额度（如 `type(uint256).max`），避免频繁授权
-- 主网操作建议通过 Safe 多签执行，确保安全
+- 执行 approve 后务必验证 allowance > 0
+- 所有主网操作建议通过 Safe 多签执行，确保安全
+- 仔细检查所有地址和参数，主网操作不可逆
 
 #### 2.5 为每个 Action 设置奖励数量
 
@@ -888,7 +1015,7 @@ forge script script/Helpers.s.sol:HelperScripts \
 ### Base Mainnet
 
 - **Chain ID**: 8453
-- **RPC URL**: `https://mainnet.base.org` 或使用其他提供商
+- **RPC URL**: `https://base-mainnet.g.alchemy.com/v2/Br9B6PkCm4u7NhukuwdGihx6SZnhrLWI` (Alchemy) 或 `https://mainnet.base.org` (公共 RPC)
 - **区块浏览器**: [BaseScan](https://basescan.org/)
 - **官方桥接**: [Base Bridge](https://bridge.base.org/)
 - **官方文档**: [Base Docs](https://docs.base.org/)

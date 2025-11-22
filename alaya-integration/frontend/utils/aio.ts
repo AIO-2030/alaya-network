@@ -34,9 +34,8 @@ export interface ProviderLike {
 export interface Config {
   feeWei: bigint;
   feeDistributor: Address;
-  allowlistEnabled: boolean;
-  aioToken?: Address;
-  aioRewardPool?: Address;
+  aioToken: Address;
+  aioRewardPool: Address;
 }
 
 export interface ClaimStatus {
@@ -129,7 +128,7 @@ export function getInteractionAddress(): Address | null {
  * Gets configuration from Interaction contract
  * @param provider Provider instance (viem or ethers)
  * @param interactionAddress Optional interaction contract address (uses global if not provided)
- * @returns Configuration object with feeWei, feeDistributor, allowlistEnabled, aioToken, and aioRewardPool
+ * @returns Configuration object with feeWei, feeDistributor, aioToken, and aioRewardPool
  */
 export async function getConfig(
   provider: ProviderLike,
@@ -155,27 +154,24 @@ export async function getConfig(
         abi: InteractionABI as any,
         functionName: "getConfig",
         args: [],
-      }) as [bigint, `0x${string}`, boolean, `0x${string}`, `0x${string}`];
+      }) as [bigint, `0x${string}`, `0x${string}`, `0x${string}`];
 
       return {
         feeWei: result[0],
         feeDistributor: result[1] as Address,
-        allowlistEnabled: result[2] as boolean,
-        aioToken: result[3] as Address,
-        aioRewardPool: result[4] as Address,
+        aioToken: result[2] as Address,
+        aioRewardPool: result[3] as Address,
       };
     } else {
       // Ethers v6 path
       // @ts-ignore - ethers is an optional dependency
       const { Contract } = await import("ethers");
       const contract = new Contract(address, InteractionABI as any, provider as any);
-      const [feeWei, feeDistributor, allowlistEnabled, aioToken, aioRewardPool] = await contract.getConfig();
-
+      const [feeWei, feeDistributor, aioToken, aioRewardPool] = await contract.getConfig();
 
       return {
         feeWei: BigInt(feeWei.toString()),
         feeDistributor: feeDistributor as Address,
-        allowlistEnabled: allowlistEnabled as boolean,
         aioToken: aioToken as Address,
         aioRewardPool: aioRewardPool as Address,
       };
@@ -345,17 +341,15 @@ export async function interact(
 }
 
 /**
- * Claims AIO tokens for a completed interaction
+ * Claims AIO tokens
  * @param provider Provider instance (viem or ethers)
- * @param action Action string identifier (must match the original interaction)
- * @param timestamp Block timestamp of the original interaction (from InteractionRecorded event)
+ * @param amount Amount of AIO tokens to claim (in wei)
  * @param options Optional: interactionAddress, account
  * @returns Transaction hash
  */
 export async function claimAIO(
   provider: ProviderLike,
-  action: string,
-  timestamp: BigNumberish,
+  amount: BigNumberish,
   options?: { interactionAddress?: Address; account?: Address }
 ): Promise<`0x${string}`> {
   const interactionAddress = options?.interactionAddress || globalInteractionAddress;
@@ -372,7 +366,11 @@ export async function claimAIO(
     }
   }
 
-  const timestampBigInt = typeof timestamp === "bigint" ? timestamp : BigInt(timestamp.toString());
+  const amountBigInt = typeof amount === "bigint" ? amount : BigInt(amount.toString());
+
+  if (amountBigInt === 0n) {
+    throw new Error("领取数量不能为零");
+  }
 
   try {
     if (isViemProvider(provider)) {
@@ -383,7 +381,7 @@ export async function claimAIO(
       const data = encodeFunctionData({
         abi: InteractionABI,
         functionName: "claimAIO",
-        args: [action, timestampBigInt],
+        args: [amountBigInt],
       });
 
       const hash = await provider.request!({
@@ -409,23 +407,23 @@ export async function claimAIO(
       }
 
       const contract = new Contract(interactionAddress, InteractionABI, signer);
-      const tx = await contract.claimAIO(action, timestampBigInt);
+      const tx = await contract.claimAIO(amountBigInt);
 
       return tx.hash as `0x${string}`;
     }
   } catch (error: any) {
     // Provide helpful error messages
-    if (error.message?.includes("already claimed")) {
-      throw new Error("该交互的奖励已经领取过了");
-    }
-    if (error.message?.includes("no reward configured")) {
-      throw new Error(`操作 "${action}" 没有配置奖励`);
-    }
     if (error.message?.includes("AIO token not set")) {
       throw new Error("AIO token 地址未设置");
     }
     if (error.message?.includes("AIO reward pool not set")) {
       throw new Error("AIO 奖励池地址未设置");
+    }
+    if (error.message?.includes("amount cannot be zero")) {
+      throw new Error("领取数量不能为零");
+    }
+    if (error.message?.includes("AIO transfer failed")) {
+      throw new Error("AIO 转账失败，可能是奖励池余额不足或未授权");
     }
     throw new Error(`领取奖励失败: ${error.message || error}`);
   }
@@ -433,12 +431,14 @@ export async function claimAIO(
 
 /**
  * Gets claim status for a specific interaction
+ * @deprecated 此函数当前不可用，因为 Interaction 合约中没有 getClaimStatus 函数
  * @param provider Provider instance (viem or ethers)
  * @param user User address
  * @param action Action string identifier
  * @param timestamp Block timestamp of the original interaction
  * @param interactionAddress Optional interaction contract address (uses global if not provided)
  * @returns Claim status with claimed flag and reward amount
+ * @throws Error 因为合约中没有此函数，调用会失败
  */
 export async function getClaimStatus(
   provider: ProviderLike,

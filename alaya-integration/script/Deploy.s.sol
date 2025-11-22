@@ -28,8 +28,9 @@ contract DeployScript is Script {
     GovernanceBootstrapper public bootstrapper;
 
     // Configuration constants (can be overridden via environment variables)
-    uint256 public constant MAX_SUPPLY = 1_000_000_000 * 1e18; // 1 billion tokens
-    uint256 public constant INITIAL_FEE_WEI = 1e15; // 0.001 ETH
+    uint256 public constant MAX_SUPPLY = 2_100_000_000 * 1e8; // 2.1 billion tokens (8 decimals)
+    uint256 public constant INITIAL_FEE_WEI = 1; // 0.003 ETH
+    uint256 public constant INITIAL_MINT_AMOUNT = 100_000_000 * 1e8; // 210 million tokens (8 decimals)
 
     function run() public {
         // Get deployer address
@@ -60,6 +61,22 @@ contract DeployScript is Script {
         aioToken = new AIOERC20(maxSupply, safeMultisig);
         console.log("AIOERC20 deployed at:", address(aioToken));
         console.log("AIOERC20 owner (from constructor):", aioToken.owner());
+
+        // 1.1. Initial mint is NOT performed here
+        // IMPORTANT: vm.prank() does NOT work in broadcast mode - it only works in test/simulation
+        // The actual transaction sender is still the deployer, not the Safe multisig
+        // Therefore, mint must be performed separately through Safe multisig after deployment
+        console.log("\n=== IMPORTANT: Initial Mint Required ===");
+        console.log("Initial mint is NOT performed during deployment.");
+        console.log("After deployment, you MUST mint tokens through Safe multisig:");
+        console.log("  1. Go to Safe multisig interface");
+        console.log("  2. Create a new transaction");
+        console.log("  3. Call: aioToken.mint(projectWallet, amount)");
+        console.log("  4. Or use Mint.s.sol script with Safe multisig private key");
+        console.log("Token Address:", address(aioToken));
+        console.log("Project Wallet:", projectWallet);
+        console.log("Recommended Initial Mint Amount (without decimals):", INITIAL_MINT_AMOUNT / 1e8);
+        console.log("========================================\n");
 
         // 2. Deploy FeeDistributor with Safe multisig as owner
         // Owner is set directly in constructor - no transferOwnership needed
@@ -116,8 +133,9 @@ contract DeployScript is Script {
         address deployer = msg.sender;
         
         // Local test configuration
-        uint256 maxSupply = 1_000_000 * 1e18; // 1 million tokens for testing
+        uint256 maxSupply = 1_000_000 * 1e8; // 1 million tokens for testing (8 decimals)
         uint256 feeWei = 1e14; // 0.0001 ETH for testing
+        uint256 initialMintAmount = 2100 * 1e8; // 2100 tokens for local testing (8 decimals)
         
         console.log("=== Local Test Network Deployment ===");
         console.log("Deployer (Owner & Project Wallet):", deployer);
@@ -132,6 +150,11 @@ contract DeployScript is Script {
         aioToken = new AIOERC20(maxSupply, deployer);
         console.log("AIOERC20 deployed at:", address(aioToken));
         console.log("AIOERC20 owner:", aioToken.owner());
+
+        // 1.1. Mint initial tokens
+        console.log("Minting initial tokens...");
+        aioToken.mint(deployer, initialMintAmount);
+        console.log("Minted", initialMintAmount / 1e8, "tokens to deployer:", deployer);
 
         // 3. Deploy FeeDistributor with deployer as owner and projectWallet
         console.log("Deploying FeeDistributor...");
@@ -163,7 +186,7 @@ contract DeployScript is Script {
     /**
      * @notice Logs deployment addresses in JSON format for local deployment
      */
-    function _logLocalDeploymentAddresses() internal {
+    function _logLocalDeploymentAddresses() internal view {
         string memory json = string.concat(
             "{\n",
             '  "aioToken": "', vm.toString(address(aioToken)), '",\n',
