@@ -27,19 +27,19 @@ contract SetFeeWeiScript is Script {
         address feeDistributorAddress = vm.envAddress("FEE_DISTRIBUTOR_ADDRESS");
         uint256 newFeeWei = vm.envUint("NEW_FEE_WEI");
         
-        console.log("=== 更新 FeeDistributor feeWei ===");
-        console.log("FeeDistributor 地址:", feeDistributorAddress);
-        console.log("新的 feeWei 值:", newFeeWei);
-        console.log("当前调用者:", msg.sender);
+        console.log(unicode"=== 更新 FeeDistributor feeWei ===");
+        console.log(unicode"FeeDistributor 地址:", feeDistributorAddress);
+        console.log(unicode"新的 feeWei 值:", newFeeWei);
+        console.log(unicode"当前调用者:", msg.sender);
         
-        FeeDistributor feeDistributor = FeeDistributor(feeDistributorAddress);
+        FeeDistributor feeDistributor = FeeDistributor(payable(feeDistributorAddress));
         
         // 检查当前值
         uint256 currentFeeWei = feeDistributor.feeWei();
-        console.log("当前 feeWei 值:", currentFeeWei);
+        console.log(unicode"当前 feeWei 值:", currentFeeWei);
         
         if (currentFeeWei == newFeeWei) {
-            console.log("feeWei 已经是目标值，无需更新");
+            console.log(unicode"feeWei 已经是目标值，无需更新");
             return;
         }
         
@@ -47,24 +47,24 @@ contract SetFeeWeiScript is Script {
         address owner = feeDistributor.owner();
         bool governanceModeEnabled = feeDistributor.governanceModeEnabled();
         
-        console.log("合约所有者:", owner);
-        console.log("治理模式是否启用:", governanceModeEnabled);
+        console.log(unicode"合约所有者:", owner);
+        console.log(unicode"治理模式是否启用:", governanceModeEnabled);
         
         if (governanceModeEnabled) {
             bytes32 PARAM_SETTER_ROLE = feeDistributor.PARAM_SETTER_ROLE();
             bool hasRole = feeDistributor.hasRole(PARAM_SETTER_ROLE, msg.sender);
-            console.log("调用者是否有 PARAM_SETTER_ROLE:", hasRole);
+            console.log(unicode"调用者是否有 PARAM_SETTER_ROLE:", hasRole);
             
             if (!hasRole && msg.sender != owner) {
-                revert("调用者没有权限更新 feeWei（需要 owner 或 PARAM_SETTER_ROLE）");
+                revert(unicode"调用者没有权限更新 feeWei（需要 owner 或 PARAM_SETTER_ROLE）");
             }
         } else {
             if (msg.sender != owner) {
-                revert("调用者不是合约所有者");
+                revert(unicode"调用者不是合约所有者");
             }
         }
         
-        console.log("开始更新 feeWei...");
+        console.log(unicode"开始更新 feeWei...");
         
         vm.startBroadcast();
         
@@ -75,12 +75,12 @@ contract SetFeeWeiScript is Script {
         
         // 验证更新
         uint256 updatedFeeWei = feeDistributor.feeWei();
-        console.log("更新后的 feeWei 值:", updatedFeeWei);
+        console.log(unicode"更新后的 feeWei 值:", updatedFeeWei);
         
         if (updatedFeeWei == newFeeWei) {
-            console.log("✅ feeWei 更新成功！");
+            console.log(unicode"✅ feeWei 更新成功！");
         } else {
-            revert("❌ feeWei 更新失败！");
+            revert(unicode"❌ feeWei 更新失败！");
         }
     }
 }

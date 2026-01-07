@@ -1,0 +1,16 @@
+{
+  "transactions": [
+    {
+      "rpc": "https://base-mainnet.public.blastapi.io"
+    },
+    {
+      "rpc": "https://base-mainnet.public.blastapi.io"
+    },
+    {
+      "rpc": "https://base-mainnet.public.blastapi.io"
+    },
+    {
+      "rpc": "https://base-mainnet.public.blastapi.io"
+    }
+  ]
+}

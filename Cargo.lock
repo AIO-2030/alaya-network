@@ -10,6 +10,7 @@ dependencies = [
  "base64",
  "bincode",
  "candid",
+ "hex",
  "hmac",
  "ic-cdk 0.14.2",
  "ic-cdk-macros 0.13.2",
