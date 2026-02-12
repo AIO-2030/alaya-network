@@ -1,10 +1,22 @@
 #!/bin/bash
 set -e
+
+# Install dependencies before building
+echo "Installing dependencies..."
+cd "$(dirname "$0")"
+npm install || {
+  echo "Warning: npm install failed, trying to install in workspace directories..."
+  cd src/aio-base-frontend && npm install || true
+  cd ../alaya-chat-nexus-frontend && npm install || true
+  cd ../..
+}
+
 dfx stop
 dfx start --background --clean
 dfx deploy aio-base-backend
 dfx deploy aio-base-frontend
 dfx deploy alaya-chat-nexus-frontend
+
 # add recharge principal
 echo "Add Recharge Principal"
 RECHARGE_PRINCIPAL_ID="jzpwm-zsjcq-ugkzp-nr7au-bydmm-c7rqk-tzp2r-gtode-fws2v-ehkfl-cqe"
@@ -22,6 +34,38 @@ else
     }
   )"
 fi
+
+# Initialize Task Rewards Contract
+echo "Initializing Task Rewards Contract..."
+dfx canister call aio-base-backend init_task_contract "(
+  vec {
+  record {
+      taskid = \"invite_20_friends\";
+      reward = 50_000_000 : nat64;
+      payfor = null;
+    };
+    record {
+      taskid = \"register_device\";
+      reward = 50_000_000 : nat64;
+      payfor = null;
+    };
+    record {
+      taskid = \"ai_subscription\";
+      reward = 100_000_000 : nat64;
+      payfor = opt \"ai_subscription\";
+    };
+    record {
+      taskid = \"voice_clone\";
+      reward = 150_000_000 : nat64;
+      payfor = null;
+    };
+  }
+)"
+
+echo "Task Rewards Contract initialized successfully!"
+echo "- register_device: 50 PMUG (50,000,000 smallest units)"
+echo "- ai_subscription: 100 PMUG (100,000,000 smallest units)"
+echo "- voice_clone: 150 PMUG (150,000,000 smallest units)"
 
 #./minttokendev.sh
 
