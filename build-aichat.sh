@@ -67,5 +67,11 @@ echo "- register_device: 50 PMUG (50,000,000 smallest units)"
 echo "- ai_subscription: 100 PMUG (100,000,000 smallest units)"
 echo "- voice_clone: 150 PMUG (150,000,000 smallest units)"
 
+# Initialize AI Subscription Service Types
+echo "Initializing AI Subscription Service Types..."
+dfx canister call aio-base-backend ai_sub_create_service '(record { svr_id = "1"; name = "Personal AI"; price_level = variant { M }; price = 5 : nat64 })'
+dfx canister call aio-base-backend ai_sub_create_service '(record { svr_id = "2"; name = "Voice Clone"; price_level = variant { E }; price = 15 : nat64 })'
+echo "AI Subscription Service Types initialized: (1) Personal AI M/5, (2) Voice Clone E/15 (永久)"
+
 #./minttokendev.sh
 
