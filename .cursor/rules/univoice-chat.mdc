@@ -1,0 +1,17 @@
+---
+description: 定位 Univoice Chat 后端（chat-api / chat-sse）与集成文档
+alwaysApply: true
+---
+
+# Univoice Chat 工程位置
+
+凡涉及 **DM、REST 聊天 API、SSE 实时推送、PostgreSQL/Prisma、与 Alaya 前端的 Univoice 集成**：
+
+1. **后端实现：** `src/univoice-chat/`（pnpm workspace）
+   - `apps/chat-api` — REST
+   - `apps/chat-sse` — SSE
+2. **入口文档：** `src/univoice-chat/README.md`
+3. **前后端集成说明：** `src/univoice-chat/integration_chat_api_chat_sse_guide.md`
+4. **前端 HTTP 客户端：** `src/alaya-chat-nexus-frontend/src/services/api/univoiceChatApi.ts`
+
+仓库级索引见根目录 **`AGENTS.md`**。不要在未读上述文档的情况下臆造端点路径或 DTO 字段名。
